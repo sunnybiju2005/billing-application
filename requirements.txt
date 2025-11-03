@@ -1,0 +1,16 @@
+# DROP Billing Application - Requirements
+
+# Core dependencies
+# tkinter comes pre-installed with Python on most systems
+# For Linux: sudo apt-get install python3-tk
+
+# Barcode generation (Code 11 format)
+python-barcode[images]>=0.15.1
+
+# Firebase (for cloud database)
+firebase-admin>=6.0.0
+
+# Optional dependencies:
+# - For better PDF generation: reportlab
+# - For database (if upgrading from JSON): sqlite3 (built-in) or sqlalchemy
+
