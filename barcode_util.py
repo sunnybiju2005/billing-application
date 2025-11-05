@@ -126,14 +126,66 @@ def download_barcode_to_path(item_id, item_name, save_path):
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
     
-    # Generate barcode as PNG
-    writer = ImageWriter()
-    writer.format = 'PNG'
-    code128 = Code128(barcode_value, writer=writer)
-    code128.save(save_path)
-    
-    # ImageWriter adds .png extension automatically
     png_filepath = save_path + ".png"
+    
+    # Try generating PNG directly first
+    try:
+        writer = ImageWriter()
+        writer.format = 'PNG'
+        code128 = Code128(barcode_value, writer=writer)
+        code128.save(save_path)
+        
+        if os.path.exists(png_filepath):
+            return png_filepath
+    except Exception as e:
+        error_msg = str(e).lower()
+        # If PNG generation fails due to resource issues (common in executables), use SVG fallback
+        if "cannot open resource" in error_msg or "resource" in error_msg:
+            # Generate SVG (doesn't need font resources)
+            try:
+                from barcode.writer import SVGWriter
+                svg_writer = SVGWriter()
+                svg_code = Code128(barcode_value, writer=svg_writer)
+                svg_filepath = save_path + ".svg"
+                svg_code.save(save_path)  # Saves as .svg
+                
+                # Convert SVG to PNG using svglib+reportlab
+                try:
+                    from svglib.svglib import svg2rlg
+                    from reportlab.graphics import renderPM
+                    drawing = svg2rlg(svg_filepath)
+                    renderPM.drawToFile(drawing, png_filepath, fmt='PNG')
+                    
+                    # Clean up SVG file
+                    if os.path.exists(svg_filepath):
+                        os.remove(svg_filepath)
+                    
+                    if os.path.exists(png_filepath):
+                        return png_filepath
+                    else:
+                        raise Exception("PNG file was not created after SVG conversion")
+                except ImportError:
+                    raise Exception(
+                        "PNG generation requires svglib and reportlab.\n\n"
+                        "Please install: pip install svglib reportlab\n"
+                        "Then rebuild your executable."
+                    )
+                except Exception as conv_error:
+                    error_msg_lower = str(conv_error).lower()
+                    if "cairo" in error_msg_lower:
+                        raise Exception(
+                            "PNG conversion requires svglib+reportlab.\n\n"
+                            "If you see Cairo errors, try:\n"
+                            "pip uninstall rlpycairo\n"
+                            "pip install svglib reportlab\n\n"
+                            "Then rebuild your executable."
+                        )
+                    raise Exception(f"Failed to convert SVG to PNG: {str(conv_error)}")
+            except Exception as svg_error:
+                raise Exception(f"Failed to generate barcode: {str(svg_error)}")
+        else:
+            # Re-raise the original error if it's not a resource issue
+            raise
     
     if not os.path.exists(png_filepath):
         raise Exception(f"Barcode file was not created at {png_filepath}")
