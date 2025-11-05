@@ -126,7 +126,7 @@ class AdminPanel:
             ('📦 Items', 'items'),
             ('🛍️ Products', 'products'),
             ('🧾 Bills', 'bills'),
-            ('🖨️ Printer', 'bill'),
+            ('🏷️ Barcode Printing', 'barcode_printing'),
             ('👥 Staff', 'staff'),
             ('📈 Reports', 'reports'),
             ('❓ Help', 'help'),
@@ -182,8 +182,8 @@ class AdminPanel:
             self._show_staff_management()
         elif view_name == 'bills':
             self._show_bills()
-        elif view_name == 'bill':
-            self._show_bill()
+        elif view_name == 'barcode_printing':
+            self._show_barcode_printing()
         elif view_name == 'reports':
             self._show_reports()
         elif view_name == 'settings':
@@ -1421,6 +1421,283 @@ For support, contact your administrator.
             justify=tk.LEFT,
             anchor='nw'
         ).pack(fill=tk.BOTH, expand=True)
+    
+    def _show_barcode_printing(self):
+        """Show barcode printing interface with all items and barcodes"""
+        self.current_view = 'barcode_printing'
+        
+        # Title
+        title_frame = tk.Frame(self.content_frame, bg='#F5F5F5')
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(
+            title_frame,
+            text="Barcode Printing",
+            font=('Arial', 20, 'bold'),
+            bg='#F5F5F5',
+            fg='#2C3E50'
+        ).pack(side=tk.LEFT)
+        
+        # Action buttons frame
+        button_frame = tk.Frame(title_frame, bg='#F5F5F5')
+        button_frame.pack(side=tk.RIGHT)
+        
+        tk.Button(
+            button_frame,
+            text="🖨️ Print Selected",
+            font=('Arial', 11, 'bold'),
+            bg='#3498DB',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._print_selected_barcodes
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="💾 Save Selected",
+            font=('Arial', 11, 'bold'),
+            bg='#27AE60',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._save_selected_barcodes
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="💾 Save All",
+            font=('Arial', 11, 'bold'),
+            bg='#16A085',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=15,
+            pady=8,
+            cursor='hand2',
+            command=self._save_all_barcodes
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="🔄 Refresh",
+            font=('Arial', 11),
+            bg='#95A5A6',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=15,
+            pady=8,
+            command=self._refresh_barcode_list
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Items list with barcodes
+        list_frame = tk.Frame(self.content_frame, bg='#FFFFFF', relief=tk.FLAT, bd=1)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.barcode_tree = ttk.Treeview(
+            list_frame,
+            columns=('ID', 'Name', 'Barcode', 'Category', 'Price'),
+            show='headings',
+            yscrollcommand=scrollbar.set,
+            selectmode='extended'
+        )
+        scrollbar.config(command=self.barcode_tree.yview)
+        
+        self.barcode_tree.heading('ID', text='ID')
+        self.barcode_tree.heading('Name', text='Item Name')
+        self.barcode_tree.heading('Barcode', text='Barcode')
+        self.barcode_tree.heading('Category', text='Category')
+        self.barcode_tree.heading('Price', text='Price (₹)')
+        
+        self.barcode_tree.column('ID', width=80, anchor='center')
+        self.barcode_tree.column('Name', width=300)
+        self.barcode_tree.column('Barcode', width=150, anchor='center')
+        self.barcode_tree.column('Category', width=150)
+        self.barcode_tree.column('Price', width=120, anchor='center')
+        
+        self.barcode_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self._refresh_barcode_list()
+    
+    def _refresh_barcode_list(self):
+        """Refresh the barcode list with all items"""
+        if not hasattr(self, 'barcode_tree'):
+            return
+        
+        # Clear existing items
+        for item in self.barcode_tree.get_children():
+            self.barcode_tree.delete(item)
+        
+        # Load all items from database
+        try:
+            items = db.get_all_inventory()
+            from barcode_util import get_barcode_value
+            
+            for item in items:
+                item_id = item.get('id', 0)
+                item_name = item.get('name', 'Unknown')
+                category = item.get('category', 'N/A')
+                price = item.get('price', 0.0)
+                barcode_value = get_barcode_value(item_id)
+                
+                self.barcode_tree.insert(
+                    '',
+                    'end',
+                    values=(item_id, item_name, barcode_value, category, f"₹{price:.2f}")
+                )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load items: {str(e)}")
+    
+    def _print_selected_barcodes(self):
+        """Print selected barcodes"""
+        selection = self.barcode_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select items to print")
+            return
+        
+        try:
+            from barcode_util import generate_barcode, BARCODE_AVAILABLE
+            
+            if not BARCODE_AVAILABLE:
+                messagebox.showerror(
+                    "Barcode Library Missing",
+                    "The python-barcode library is not installed.\n\n"
+                    "Please install: pip install python-barcode"
+                )
+                return
+            
+            # Generate barcodes for selected items
+            barcode_files = []
+            for item_id in selection:
+                values = self.barcode_tree.item(item_id)['values']
+                item_id_val = int(values[0])
+                item_name = values[1]
+                
+                # Generate barcode
+                barcode_file = generate_barcode(item_id_val, item_name)
+                if barcode_file:
+                    barcode_files.append(barcode_file)
+            
+            if barcode_files:
+                # Open SVG files for printing (user can print from browser)
+                import webbrowser
+                import platform
+                
+                if platform.system() == "Windows":
+                    for file in barcode_files:
+                        os.startfile(file)
+                else:
+                    for file in barcode_files:
+                        webbrowser.open(f"file://{os.path.abspath(file)}")
+                
+                messagebox.showinfo(
+                    "Success",
+                    f"Opened {len(barcode_files)} barcode(s) for printing.\n\n"
+                    "Print the SVG files from your browser or image viewer."
+                )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to print barcodes:\n\n{str(e)}")
+    
+    def _save_selected_barcodes(self):
+        """Save selected barcodes to a folder"""
+        selection = self.barcode_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select items to save")
+            return
+        
+        try:
+            # Ask user for save directory
+            save_dir = filedialog.askdirectory(title="Select folder to save barcodes")
+            if not save_dir:
+                return
+            
+            from barcode_util import generate_barcode, BARCODE_AVAILABLE
+            
+            if not BARCODE_AVAILABLE:
+                messagebox.showerror(
+                    "Barcode Library Missing",
+                    "The python-barcode library is not installed.\n\n"
+                    "Please install: pip install python-barcode"
+                )
+                return
+            
+            saved_count = 0
+            for item_id in selection:
+                values = self.barcode_tree.item(item_id)['values']
+                item_id_val = int(values[0])
+                item_name = values[1]
+                
+                # Clean filename
+                safe_name = "".join(c for c in item_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                safe_name = safe_name.replace(' ', '_')
+                filename = f"DROP_{safe_name}_{item_id_val}"
+                save_path = os.path.join(save_dir, filename)
+                
+                # Generate and save barcode
+                barcode_file = generate_barcode(item_id_val, item_name, save_path)
+                if barcode_file:
+                    saved_count += 1
+            
+            messagebox.showinfo(
+                "Success",
+                f"Saved {saved_count} barcode(s) to:\n{save_dir}"
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save barcodes:\n\n{str(e)}")
+    
+    def _save_all_barcodes(self):
+        """Save all barcodes to a folder"""
+        try:
+            # Ask user for save directory
+            save_dir = filedialog.askdirectory(title="Select folder to save all barcodes")
+            if not save_dir:
+                return
+            
+            from barcode_util import generate_barcode, BARCODE_AVAILABLE
+            
+            if not BARCODE_AVAILABLE:
+                messagebox.showerror(
+                    "Barcode Library Missing",
+                    "The python-barcode library is not installed.\n\n"
+                    "Please install: pip install python-barcode"
+                )
+                return
+            
+            # Get all items from database
+            items = db.get_all_inventory()
+            saved_count = 0
+            
+            for item in items:
+                item_id = item.get('id', 0)
+                item_name = item.get('name', 'Unknown')
+                
+                # Clean filename
+                safe_name = "".join(c for c in item_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                safe_name = safe_name.replace(' ', '_')
+                filename = f"DROP_{safe_name}_{item_id}"
+                save_path = os.path.join(save_dir, filename)
+                
+                # Generate and save barcode
+                try:
+                    barcode_file = generate_barcode(item_id, item_name, save_path)
+                    if barcode_file:
+                        saved_count += 1
+                except Exception as e:
+                    print(f"Error saving barcode for {item_name}: {e}")
+                    continue
+            
+            messagebox.showinfo(
+                "Success",
+                f"Saved {saved_count} barcode(s) to:\n{save_dir}"
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save barcodes:\n\n{str(e)}")
     
     def _show_bill(self):
         """Show bill customization interface with dimension settings and format preview"""
@@ -2817,28 +3094,27 @@ For support, contact your administrator.
             item_id = int(self.items_tree.item(selection[0])['values'][0])
             item_name = self.items_tree.item(selection[0])['values'][1]
             
-            from barcode_util import download_barcode_to_path, BARCODE_AVAILABLE
+            from barcode_util import generate_barcode, BARCODE_AVAILABLE
             
             if not BARCODE_AVAILABLE:
                 messagebox.showerror(
                     "Barcode Library Missing",
                     "The python-barcode library is not installed.\n\n"
                     "Please install it by running:\n"
-                    "pip install python-barcode[images]\n\n"
+                    "pip install python-barcode\n\n"
                     "Then restart the application."
                 )
                 return
             
             # Ask user where to save the barcode
-            # Clean filename for default suggestion
             safe_name = "".join(c for c in item_name if c.isalnum() or c in (' ', '-', '_')).strip()
             safe_name = safe_name.replace(' ', '_')
-            default_filename = f"DROP_{safe_name}_{item_id}.png"
+            default_filename = f"DROP_{safe_name}_{item_id}.svg"
             
             # Show save dialog
             filepath = filedialog.asksaveasfilename(
-                defaultextension=".png",
-                filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+                defaultextension=".svg",
+                filetypes=[("SVG files", "*.svg"), ("All files", "*.*")],
                 title="Save Barcode As",
                 initialfile=default_filename
             )
@@ -2848,7 +3124,7 @@ For support, contact your administrator.
                 return
             
             # Generate and save barcode to chosen location
-            filepath = download_barcode_to_path(item_id, item_name, save_path=filepath)
+            filepath = generate_barcode(item_id, item_name, save_path=filepath)
             
             if filepath and os.path.exists(filepath):
                 messagebox.showinfo(
@@ -2862,7 +3138,7 @@ For support, contact your administrator.
             messagebox.showerror(
                 "Import Error",
                 f"Barcode library is not available.\n\nError: {str(e)}\n\n"
-                "Please install: pip install python-barcode[images]"
+                "Please install: pip install python-barcode"
             )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to download barcode:\n\n{str(e)}")
