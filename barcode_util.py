@@ -164,21 +164,39 @@ def download_barcode_to_path(item_id, item_name, save_path):
                         return png_filepath
                     else:
                         raise Exception("PNG file was not created after SVG conversion")
-                except ImportError:
+                except ImportError as import_err:
+                    # Check which module is missing
+                    missing_module = str(import_err)
+                    if "svglib" in missing_module or "svg2rlg" in missing_module:
+                        module_name = "svglib"
+                    elif "reportlab" in missing_module or "renderPM" in missing_module:
+                        module_name = "reportlab"
+                    else:
+                        module_name = "svglib and reportlab"
+                    
                     raise Exception(
-                        "PNG generation requires svglib and reportlab.\n\n"
-                        "Please install: pip install svglib reportlab\n"
-                        "Then rebuild your executable."
+                        f"PNG conversion requires {module_name} to be bundled in your executable.\n\n"
+                        "To fix this:\n"
+                        "1. Install the libraries: pip install svglib reportlab\n"
+                        "2. In auto-py-to-exe, add these to 'Additional Options':\n"
+                        "   --hidden-import=svglib\n"
+                        "   --hidden-import=svglib.svglib\n"
+                        "   --hidden-import=reportlab\n"
+                        "   --hidden-import=reportlab.graphics\n"
+                        "   --hidden-import=reportlab.graphics.renderPM\n"
+                        "3. Rebuild your executable.\n\n"
+                        f"Error: {str(import_err)}"
                     )
                 except Exception as conv_error:
                     error_msg_lower = str(conv_error).lower()
                     if "cairo" in error_msg_lower:
                         raise Exception(
-                            "PNG conversion requires svglib+reportlab.\n\n"
-                            "If you see Cairo errors, try:\n"
-                            "pip uninstall rlpycairo\n"
-                            "pip install svglib reportlab\n\n"
-                            "Then rebuild your executable."
+                            "PNG conversion failed due to Cairo library issues.\n\n"
+                            "Solution:\n"
+                            "1. Uninstall rlpycairo: pip uninstall rlpycairo\n"
+                            "2. Reinstall: pip install svglib reportlab\n"
+                            "3. Rebuild your executable with hidden imports.\n\n"
+                            f"Error: {str(conv_error)}"
                         )
                     raise Exception(f"Failed to convert SVG to PNG: {str(conv_error)}")
             except Exception as svg_error:
