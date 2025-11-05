@@ -6,11 +6,13 @@
 
 # Barcode generation (Code 11 format)
 python-barcode[images]>=0.15.1
+# Pillow is required for image processing (part of python-barcode[images] but listed explicitly)
+Pillow>=10.0.0
 # For PNG conversion in executables (pure Python, no system libraries needed)
 svglib>=0.9.3
 reportlab>=4.0.0
-# Optional: cairosvg (requires system Cairo libraries - may not work in executables)
-# cairosvg>=2.7.0
+# IMPORTANT: Do NOT install rlpycairo - it requires Cairo DLLs that don't work in executables
+# If rlpycairo is installed, uninstall it: pip uninstall rlpycairo
 
 # Firebase (for cloud database)
 firebase-admin>=6.0.0

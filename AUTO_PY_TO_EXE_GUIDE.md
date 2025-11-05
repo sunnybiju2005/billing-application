@@ -68,10 +68,17 @@ Copy and paste ALL these lines into the "Additional Options" field:
 --hidden-import=reportlab.graphics.renderPM
 ```
 
+**IMPORTANT**: Do NOT include `rlpycairo` in hidden imports - it will cause Cairo DLL errors.
+If you see `rlpycairo` in your Python environment, uninstall it: `pip uninstall rlpycairo`
+
 This ensures all Firebase and barcode dependencies are included.
 
 **Important for Barcode PNG**: 
 - Install `svglib` and `reportlab` before building: `pip install svglib reportlab`
+- **CRITICAL**: Uninstall `rlpycairo` if it's installed: `pip uninstall rlpycairo`
+  - `rlpycairo` requires Cairo DLLs that don't work in executables
+  - ReportLab will automatically use PIL backend instead (which works perfectly)
+- Make sure `Pillow` is installed: `pip install Pillow`
 - These are pure Python libraries (no system DLLs needed) and work perfectly in executables
 - The application automatically uses SVG→PNG conversion in executables to avoid font issues
 
