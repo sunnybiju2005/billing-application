@@ -51,13 +51,19 @@ Add these to "Additional Options" (optional but recommended):
 --hidden-import=google.auth
 --hidden-import=barcode
 --hidden-import=barcode.writer
+--hidden-import=barcode.writer.ImageWriter
+--hidden-import=barcode.writer.SVGWriter
 --hidden-import=PIL
 --hidden-import=PIL.Image
+--hidden-import=cairosvg
 ```
 
 This ensures all Firebase and barcode dependencies are included.
 
-**Note**: If barcode PNG generation fails in the executable, it will automatically fall back to SVG format (which doesn't require fonts).
+**Important for Barcode PNG**: 
+- Install `cairosvg` before building: `pip install cairosvg`
+- The application will automatically disable text rendering in executables to avoid font issues
+- If PNG generation still fails, it will use SVG→PNG conversion automatically
 
 ### 4. Output Directory
 
