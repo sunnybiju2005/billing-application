@@ -332,4 +332,4 @@ class Database:
 if db is None:
     # Create JSON database instance
     db = Database()
-    print("ℹ Using JSON database (Firebase not configured)")
+    print("Using JSON database (Firebase not configured)")

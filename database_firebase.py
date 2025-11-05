@@ -30,18 +30,21 @@ class FirebaseDatabase:
         self._initialize_default_data()
     
     def _initialize_firebase(self):
-        """Initialize Firebase Admin SDK"""
+        """Initialize Firebase Admin SDK - ensures only one initialization"""
         config = get_firebase_config()
         credentials_path = config['credentials_path']
         
-        # Check if Firebase is already initialized
+        # Check if Firebase is already initialized using get_app()
         try:
+            firebase_admin.get_app()
+            # Firebase is already initialized, just get the client
             self.db = firestore.client()
             return
-        except (ValueError, AttributeError):
+        except ValueError:
+            # Firebase is not initialized yet, proceed with initialization
             pass
         
-        # Initialize Firebase Admin SDK
+        # Initialize Firebase Admin SDK (only if not already initialized)
         if os.path.exists(credentials_path):
             cred = credentials.Certificate(credentials_path)
             firebase_admin.initialize_app(cred)

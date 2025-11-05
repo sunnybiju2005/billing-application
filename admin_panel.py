@@ -4,9 +4,10 @@ Features: Clean professional layout with sidebar navigation
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
 import os
+import csv
 from database import db
 from config import (
     SHOP_NAME, SHOP_TAGLINE, SHOP_ADDRESS, DEFAULT_BILL_WIDTH_MM, DEFAULT_BILL_HEIGHT_MM, 
@@ -125,7 +126,7 @@ class AdminPanel:
             ('📦 Items', 'items'),
             ('🛍️ Products', 'products'),
             ('🧾 Bills', 'bills'),
-            ('📄 Bill', 'bill'),
+            ('🖨️ Printer', 'bill'),
             ('👥 Staff', 'staff'),
             ('📈 Reports', 'reports'),
             ('❓ Help', 'help'),
@@ -639,6 +640,19 @@ class AdminPanel:
             command=self._delete_all_bills
         ).pack(side=tk.LEFT, padx=5)
         
+        tk.Button(
+            action_frame,
+            text="📥 Export Filtered Data",
+            font=('Arial', 11),
+            bg='#27AE60',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=20,
+            pady=8,
+            cursor='hand2',
+            command=self._export_filtered_bills
+        ).pack(side=tk.LEFT, padx=5)
+        
         self._refresh_bills()
     
     def _on_date_filter_changed(self):
@@ -1126,43 +1140,88 @@ To use Firebase, see FIREBASE_SETUP.md
                 progress_label.config(text="Updating views...")
                 sync_dialog.update()
                 
-                # Refresh all views that might be visible or cached
-                # Refresh current view
-                if self.current_view == 'dashboard':
-                    self._show_dashboard()
-                elif self.current_view == 'items':
-                    self._show_items()
-                elif self.current_view == 'products':
-                    self._show_products()
-                elif self.current_view == 'bills':
-                    self._refresh_bills()
-                elif self.current_view == 'staff':
-                    self._refresh_staff()
-                elif self.current_view == 'database':
-                    self._show_database()  # Refresh database view
+                # Helper function to safely check if widget exists
+                def widget_exists(widget):
+                    """Check if a widget exists and is still valid"""
+                    if not hasattr(self, widget):
+                        return False
+                    widget_obj = getattr(self, widget, None)
+                    if widget_obj is None:
+                        return False
+                    try:
+                        # Try to access widget's winfo_exists to verify it's still valid
+                        widget_obj.winfo_exists()
+                        return True
+                    except (tk.TclError, AttributeError):
+                        return False
                 
-                # Also refresh any cached tree views if they exist
-                if hasattr(self, 'items_tree') and self.items_tree:
-                    # Items view will be refreshed when shown next
-                    pass
-                if hasattr(self, 'products_tree') and self.products_tree:
-                    self._refresh_products()
-                if hasattr(self, 'bills_tree') and self.bills_tree:
-                    self._refresh_bills()
-                if hasattr(self, 'staff_tree') and self.staff_tree:
-                    self._refresh_staff()
-                
+                # Refresh current view only if widgets are accessible
+                # Close sync dialog first to avoid widget conflicts
                 sync_dialog.destroy()
+                
+                # Small delay to ensure dialog is fully destroyed
+                self.root.update_idletasks()
+                
+                # Refresh current view
+                try:
+                    if self.current_view == 'dashboard':
+                        self._show_dashboard()
+                    elif self.current_view == 'items':
+                        self._show_items()
+                    elif self.current_view == 'products':
+                        self._show_products()
+                    elif self.current_view == 'bills':
+                        if widget_exists('bills_tree'):
+                            self._refresh_bills()
+                        else:
+                            self._show_bills()
+                    elif self.current_view == 'staff':
+                        if widget_exists('staff_tree'):
+                            self._refresh_staff()
+                        else:
+                            self._show_staff_management()
+                    elif self.current_view == 'database':
+                        self._show_database()
+                except tk.TclError as e:
+                    # Widget was destroyed, recreate the view
+                    if self.current_view:
+                        if self.current_view == 'dashboard':
+                            self._show_dashboard()
+                        elif self.current_view == 'items':
+                            self._show_items()
+                        elif self.current_view == 'products':
+                            self._show_products()
+                        elif self.current_view == 'bills':
+                            self._show_bills()
+                        elif self.current_view == 'staff':
+                            self._show_staff_management()
+                        elif self.current_view == 'database':
+                            self._show_database()
+                
                 messagebox.showinfo(
                     "Sync Complete",
                     "Data successfully synced from Firebase!\n\n"
                     "All views have been refreshed with the latest data."
                 )
             except Exception as e:
-                sync_dialog.destroy()
+                # Make sure dialog is destroyed even on error
+                try:
+                    sync_dialog.destroy()
+                except:
+                    pass
+                
+                # Show error message
+                error_msg = str(e)
+                # Clean up Tkinter widget path errors for user-friendly message
+                if "invalid command name" in error_msg:
+                    error_msg = "A UI component was not accessible during sync.\n\n" + \
+                               "This usually happens when the view changes during sync.\n" + \
+                               "The data has been synced successfully.\n\n" + \
+                               "Please refresh the view manually if needed."
+                
                 messagebox.showerror(
                     "Sync Error",
-                    f"Failed to sync data from Firebase:\n\n{str(e)}"
+                    f"Failed to sync data from Firebase:\n\n{error_msg}"
                 )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to sync database: {str(e)}")
@@ -2107,6 +2166,44 @@ For support, contact your administrator.
         for item in self.bills_tree.get_children():
             self.bills_tree.delete(item)
         
+        # Get filtered bills using helper method
+        sorted_bills = self._get_filtered_bills()
+        
+        for index, bill in enumerate(sorted_bills, start=1):
+            staff_user = db.get_user(bill['user_id'])
+            staff_name = staff_user['name'] if staff_user else 'Unknown'
+            date_str = datetime.fromisoformat(bill['date']).strftime("%Y-%m-%d %H:%M")
+            bill_id = bill.get('id', 'N/A')
+            # Ensure bill ID is in DR0201 format
+            if isinstance(bill_id, (int, float)):
+                bill_id = f"DR{str(int(bill_id)).zfill(4)}"
+            
+            # Format items list
+            items_list = []
+            for item in bill.get('items', []):
+                item_name = item.get('name', 'Unknown')
+                item_qty = item.get('quantity', 1)
+                if item_qty > 1:
+                    items_list.append(f"{item_name} (x{item_qty})")
+                else:
+                    items_list.append(item_name)
+            items_display = ", ".join(items_list)
+            # Truncate if too long
+            if len(items_display) > 70:
+                items_display = items_display[:67] + "..."
+            
+            self.bills_tree.insert('', 'end', values=(
+                index,
+                bill_id,
+                date_str,
+                staff_name,
+                items_display,
+                f"₹{bill['total']:.2f}",
+                bill['payment_method']
+            ))
+    
+    def _get_filtered_bills(self):
+        """Get filtered bills based on current filter settings"""
         bills = db.get_all_bills()
         date_filter = self.date_filter_var.get()
         item_filter = self.item_filter_var.get()
@@ -2209,39 +2306,91 @@ For support, contact your administrator.
         
         # Sort bills by date (newest first) for consistent numbering
         sorted_bills = sorted(bills, key=lambda x: x['date'], reverse=True)
-        
-        for index, bill in enumerate(sorted_bills, start=1):
-            staff_user = db.get_user(bill['user_id'])
-            staff_name = staff_user['name'] if staff_user else 'Unknown'
-            date_str = datetime.fromisoformat(bill['date']).strftime("%Y-%m-%d %H:%M")
-            bill_id = bill.get('id', 'N/A')
-            # Ensure bill ID is in DR0201 format
-            if isinstance(bill_id, (int, float)):
-                bill_id = f"DR{str(int(bill_id)).zfill(4)}"
+        return sorted_bills
+    
+    def _export_filtered_bills(self):
+        """Export filtered bills data to CSV file"""
+        try:
+            # Get filtered bills
+            filtered_bills = self._get_filtered_bills()
             
-            # Format items list
-            items_list = []
-            for item in bill.get('items', []):
-                item_name = item.get('name', 'Unknown')
-                item_qty = item.get('quantity', 1)
-                if item_qty > 1:
-                    items_list.append(f"{item_name} (x{item_qty})")
-                else:
-                    items_list.append(item_name)
-            items_display = ", ".join(items_list)
-            # Truncate if too long
-            if len(items_display) > 70:
-                items_display = items_display[:67] + "..."
+            if not filtered_bills:
+                messagebox.showinfo("No Data", "No bills match the current filters. Nothing to export.")
+                return
             
-            self.bills_tree.insert('', 'end', values=(
-                index,
-                bill_id,
-                date_str,
-                staff_name,
-                items_display,
-                f"₹{bill['total']:.2f}",
-                bill['payment_method']
-            ))
+            # Ask user for save location
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                title="Export Filtered Bills Data",
+                initialfile=f"bills_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+            
+            if not filename:
+                return  # User cancelled
+            
+            # Write to CSV
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                
+                # Write header
+                writer.writerow([
+                    'No', 'Bill ID', 'Date', 'Time', 'Staff Member', 
+                    'Items', 'Item Details', 'Total (₹)', 'Payment Method'
+                ])
+                
+                # Write bill data
+                for index, bill in enumerate(filtered_bills, start=1):
+                    staff_user = db.get_user(bill['user_id'])
+                    staff_name = staff_user['name'] if staff_user else 'Unknown'
+                    
+                    bill_date = datetime.fromisoformat(bill['date'])
+                    date_str = bill_date.strftime("%Y-%m-%d")
+                    time_str = bill_date.strftime("%H:%M:%S")
+                    
+                    bill_id = bill.get('id', 'N/A')
+                    # Ensure bill ID is in DR0201 format
+                    if isinstance(bill_id, (int, float)):
+                        bill_id = f"DR{str(int(bill_id)).zfill(4)}"
+                    
+                    # Format items list
+                    items_list = []
+                    items_details = []
+                    for item in bill.get('items', []):
+                        item_name = item.get('name', 'Unknown')
+                        item_qty = item.get('quantity', 1)
+                        item_price = item.get('price', 0)
+                        item_total = item.get('total', 0)
+                        
+                        if item_qty > 1:
+                            items_list.append(f"{item_name} (x{item_qty})")
+                        else:
+                            items_list.append(item_name)
+                        
+                        items_details.append(f"{item_name}: Qty={item_qty}, Price=₹{item_price:.2f}, Total=₹{item_total:.2f}")
+                    
+                    items_display = ", ".join(items_list)
+                    items_details_str = " | ".join(items_details)
+                    
+                    writer.writerow([
+                        index,
+                        bill_id,
+                        date_str,
+                        time_str,
+                        staff_name,
+                        items_display,
+                        items_details_str,
+                        f"{bill['total']:.2f}",
+                        bill['payment_method']
+                    ])
+            
+            messagebox.showinfo(
+                "Export Successful",
+                f"Successfully exported {len(filtered_bills)} bill(s) to:\n{filename}"
+            )
+            
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export bills: {str(e)}")
     
     def _view_bill_details(self):
         """View details of selected bill"""
