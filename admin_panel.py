@@ -2807,7 +2807,7 @@ For support, contact your administrator.
         barcode_entry.bind('<Return>', lambda e: search_by_barcode())
     
     def _download_barcode(self):
-        """Download barcode for selected item to desktop"""
+        """Download barcode for selected item - asks user for save location"""
         selection = self.items_tree.selection()
         if not selection:
             messagebox.showwarning("Warning", "Please select an item to download barcode")
@@ -2817,7 +2817,7 @@ For support, contact your administrator.
             item_id = int(self.items_tree.item(selection[0])['values'][0])
             item_name = self.items_tree.item(selection[0])['values'][1]
             
-            from barcode_util import download_barcode_to_desktop, BARCODE_AVAILABLE
+            from barcode_util import download_barcode_to_path, BARCODE_AVAILABLE
             
             if not BARCODE_AVAILABLE:
                 messagebox.showerror(
@@ -2829,7 +2829,26 @@ For support, contact your administrator.
                 )
                 return
             
-            filepath = download_barcode_to_desktop(item_id, item_name)
+            # Ask user where to save the barcode
+            # Clean filename for default suggestion
+            safe_name = "".join(c for c in item_name if c.isalnum() or c in (' ', '-', '_')).strip()
+            safe_name = safe_name.replace(' ', '_')
+            default_filename = f"DROP_{safe_name}_{item_id}.png"
+            
+            # Show save dialog
+            filepath = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+                title="Save Barcode As",
+                initialfile=default_filename
+            )
+            
+            # If user cancelled, return
+            if not filepath:
+                return
+            
+            # Generate and save barcode to chosen location
+            filepath = download_barcode_to_path(item_id, item_name, save_path=filepath)
             
             if filepath and os.path.exists(filepath):
                 messagebox.showinfo(
@@ -2838,7 +2857,7 @@ For support, contact your administrator.
                     f"Item: {item_name}\nBarcode: DROP{str(item_id).zfill(6)}"
                 )
             else:
-                messagebox.showerror("Error", "Barcode was generated but file was not found.\nPlease check the desktop folder.")
+                messagebox.showerror("Error", "Barcode was generated but file was not found.")
         except ImportError as e:
             messagebox.showerror(
                 "Import Error",
