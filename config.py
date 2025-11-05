@@ -11,8 +11,31 @@ SHOP_NAME = "DROP"
 SHOP_TAGLINE = "DRESS FOR LESS"
 SHOP_ADDRESS = "City center, Naikkanal, Thrissur, Kerala 680001"
 
-# File paths
-DATA_DIR = "data"
+# File paths - handle both script and executable modes
+import sys
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller/auto-py-to-exe"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # If not running as bundled executable, use current directory
+        base_path = os.path.abspath(os.path.dirname(__file__))
+    
+    return os.path.join(base_path, relative_path)
+
+def get_data_dir():
+    """Get data directory path - use executable directory when running as .exe"""
+    if getattr(sys, 'frozen', False):
+        # Running as executable - store data next to .exe
+        exe_dir = os.path.dirname(sys.executable)
+        return os.path.join(exe_dir, "data")
+    else:
+        # Running as script - use project directory
+        return "data"
+
+DATA_DIR = get_data_dir()
 BILLS_DIR = os.path.join(DATA_DIR, "bills")
 RECEIPTS_DIR = os.path.join(DATA_DIR, "receipts")
 
