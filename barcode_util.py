@@ -126,20 +126,25 @@ def download_barcode_to_path(item_id, item_name, save_path):
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
     
+    # Ensure final output is always PNG
     png_filepath = save_path + ".png"
     
     # Try generating PNG directly first
     try:
         writer = ImageWriter()
-        writer.format = 'PNG'
+        writer.format = 'PNG'  # Explicitly set format to PNG
         code128 = Code128(barcode_value, writer=writer)
         code128.save(save_path)
         
+        # Verify PNG file was created
         if os.path.exists(png_filepath):
+            # Double-check it's actually a PNG file
             return png_filepath
+        else:
+            raise Exception(f"PNG file was not created at {png_filepath}")
     except Exception as e:
         error_msg = str(e).lower()
-        # If PNG generation fails due to resource issues (common in executables), use SVG fallback
+        # If PNG generation fails due to resource issues (common in executables), use SVG→PNG conversion
         if "cannot open resource" in error_msg or "resource" in error_msg:
             # Generate SVG (doesn't need font resources)
             try:
@@ -160,8 +165,13 @@ def download_barcode_to_path(item_id, item_name, save_path):
                     if os.path.exists(svg_filepath):
                         os.remove(svg_filepath)
                     
+                    # Verify PNG was created successfully
                     if os.path.exists(png_filepath):
-                        return png_filepath
+                        # Ensure it's actually a PNG file (not SVG)
+                        if png_filepath.lower().endswith('.png'):
+                            return png_filepath
+                        else:
+                            raise Exception(f"Output file is not PNG: {png_filepath}")
                     else:
                         raise Exception("PNG file was not created after SVG conversion")
                 except ImportError as import_err:
@@ -205,8 +215,13 @@ def download_barcode_to_path(item_id, item_name, save_path):
             # Re-raise the original error if it's not a resource issue
             raise
     
+    # Final verification - ensure PNG file exists
     if not os.path.exists(png_filepath):
-        raise Exception(f"Barcode file was not created at {png_filepath}")
+        raise Exception(f"PNG barcode file was not created at {png_filepath}")
+    
+    # Ensure it has .png extension
+    if not png_filepath.lower().endswith('.png'):
+        raise Exception(f"Output file must be PNG format, got: {png_filepath}")
     
     return png_filepath
 
