@@ -49,9 +49,15 @@ Add these to "Additional Options" (optional but recommended):
 --hidden-import=firebase_admin
 --hidden-import=google.cloud.firestore
 --hidden-import=google.auth
+--hidden-import=barcode
+--hidden-import=barcode.writer
+--hidden-import=PIL
+--hidden-import=PIL.Image
 ```
 
-This ensures all Firebase dependencies are included.
+This ensures all Firebase and barcode dependencies are included.
+
+**Note**: If barcode PNG generation fails in the executable, it will automatically fall back to SVG format (which doesn't require fonts).
 
 ### 4. Output Directory
 
@@ -108,6 +114,13 @@ Add missing modules to "Additional Options":
 ```
 --hidden-import=missing_module_name
 ```
+
+### "Cannot open resource" Barcode Error
+
+**Solution:**
+This is already handled! The application will automatically fall back to SVG format if PNG generation fails. SVG files work just as well and can be opened in any browser or image viewer.
+
+If you want to ensure PNG works, you can add font files to "Additional Files", but SVG fallback is recommended.
 
 ### Data Not Persisting
 
