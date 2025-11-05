@@ -43,7 +43,13 @@ Click "Additional Files" and add:
 
 ### 3. Additional Options
 
-Add these to "Additional Options" (optional but recommended):
+**Where to find it:**
+- Look for "Additional Options" text field in auto-py-to-exe
+- Usually located in the main window or under "Advanced" tab
+- It's a large text box where you can type PyInstaller commands
+
+**What to add:**
+Copy and paste ALL these lines into the "Additional Options" field:
 
 ```
 --hidden-import=firebase_admin
@@ -55,15 +61,19 @@ Add these to "Additional Options" (optional but recommended):
 --hidden-import=barcode.writer.SVGWriter
 --hidden-import=PIL
 --hidden-import=PIL.Image
---hidden-import=cairosvg
+--hidden-import=svglib
+--hidden-import=svglib.svglib
+--hidden-import=reportlab
+--hidden-import=reportlab.graphics
+--hidden-import=reportlab.graphics.renderPM
 ```
 
 This ensures all Firebase and barcode dependencies are included.
 
 **Important for Barcode PNG**: 
-- Install `cairosvg` before building: `pip install cairosvg`
-- The application will automatically disable text rendering in executables to avoid font issues
-- If PNG generation still fails, it will use SVG→PNG conversion automatically
+- Install `svglib` and `reportlab` before building: `pip install svglib reportlab`
+- These are pure Python libraries (no system DLLs needed) and work perfectly in executables
+- The application automatically uses SVG→PNG conversion in executables to avoid font issues
 
 ### 4. Output Directory
 
@@ -121,12 +131,14 @@ Add missing modules to "Additional Options":
 --hidden-import=missing_module_name
 ```
 
-### "Cannot open resource" Barcode Error
+### "Cannot open resource" or "Cairo library not found" Barcode Error
 
 **Solution:**
-This is already handled! The application will automatically fall back to SVG format if PNG generation fails. SVG files work just as well and can be opened in any browser or image viewer.
+1. Install svglib and reportlab: `pip install svglib reportlab`
+2. Rebuild your executable
+3. The application will automatically use SVG→PNG conversion (pure Python, no system libraries needed)
 
-If you want to ensure PNG works, you can add font files to "Additional Files", but SVG fallback is recommended.
+**Note:** `cairosvg` requires system Cairo DLLs which don't work well in executables. `svglib` + `reportlab` is the recommended solution for executables.
 
 ### Data Not Persisting
 

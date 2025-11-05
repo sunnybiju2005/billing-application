@@ -165,11 +165,13 @@ def download_barcode_to_desktop(item_id, item_name):
                 svg_filepath = filepath + ".svg"
                 svg_code.save(filepath)  # Saves as .svg
                 
-                # Convert SVG to PNG using cairosvg
+                # Convert SVG to PNG using svglib+reportlab (pure Python, no system libraries needed)
                 try:
-                    import cairosvg
+                    from svglib.svglib import svg2rlg
+                    from reportlab.graphics import renderPM
+                    drawing = svg2rlg(svg_filepath)
                     png_filepath = filepath + ".png"
-                    cairosvg.svg2png(url=svg_filepath, write_to=png_filepath)
+                    renderPM.drawToFile(drawing, png_filepath, fmt='PNG')
                     # Clean up SVG file
                     if os.path.exists(svg_filepath):
                         os.remove(svg_filepath)
@@ -178,24 +180,23 @@ def download_barcode_to_desktop(item_id, item_name):
                     else:
                         raise Exception("PNG file was not created after SVG conversion")
                 except ImportError:
-                    # cairosvg not available - try alternative: use svglib
+                    # svglib/reportlab not available - try cairosvg as last resort
                     try:
-                        from svglib.svglib import svg2rlg
-                        from reportlab.graphics import renderPM
-                        drawing = svg2rlg(svg_filepath)
+                        import cairosvg
                         png_filepath = filepath + ".png"
-                        renderPM.drawToFile(drawing, png_filepath, fmt='PNG')
+                        cairosvg.svg2png(url=svg_filepath, write_to=png_filepath)
                         # Clean up SVG file
                         if os.path.exists(svg_filepath):
                             os.remove(svg_filepath)
                         if os.path.exists(png_filepath):
                             return png_filepath
-                    except ImportError:
-                        # No conversion library available
+                    except (ImportError, Exception) as cairo_error:
+                        # No conversion library available or cairo system libs missing
                         raise Exception(
-                            "PNG generation in executable requires cairosvg.\n\n"
-                            "Please install: pip install cairosvg\n"
-                            "Then rebuild your executable."
+                            "PNG generation in executable requires svglib+reportlab.\n\n"
+                            "Please install: pip install svglib reportlab\n"
+                            "Then rebuild your executable.\n\n"
+                            "Note: cairosvg requires system Cairo libraries which may not be available."
                         )
             except Exception as svg_error:
                 raise Exception(f"Failed to generate PNG from SVG: {str(svg_error)}")
@@ -220,16 +221,29 @@ def download_barcode_to_desktop(item_id, item_name):
                         svg_filepath = filepath + ".svg"
                         svg_code.save(filepath)
                         
+                        # Try svglib+reportlab first (pure Python)
                         try:
-                            import cairosvg
+                            from svglib.svglib import svg2rlg
+                            from reportlab.graphics import renderPM
+                            drawing = svg2rlg(svg_filepath)
                             png_filepath = filepath + ".png"
-                            cairosvg.svg2png(url=svg_filepath, write_to=png_filepath)
+                            renderPM.drawToFile(drawing, png_filepath, fmt='PNG')
                             if os.path.exists(svg_filepath):
                                 os.remove(svg_filepath)
                             if os.path.exists(png_filepath):
                                 return png_filepath
                         except ImportError:
-                            raise Exception("Install cairosvg: pip install cairosvg")
+                            # Try cairosvg as fallback
+                            try:
+                                import cairosvg
+                                png_filepath = filepath + ".png"
+                                cairosvg.svg2png(url=svg_filepath, write_to=png_filepath)
+                                if os.path.exists(svg_filepath):
+                                    os.remove(svg_filepath)
+                                if os.path.exists(png_filepath):
+                                    return png_filepath
+                            except ImportError:
+                                raise Exception("Install svglib and reportlab: pip install svglib reportlab")
                     except Exception as conv_error:
                         raise Exception(f"PNG generation failed: {str(save_error)}")
                 else:
