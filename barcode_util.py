@@ -62,18 +62,43 @@ def generate_barcode(item_id, item_name):
         except Exception as save_error:
             error_msg_lower = str(save_error).lower()
             if "cannot open resource" in error_msg_lower or "string argument" in error_msg_lower:
-                # Fallback to SVG format which doesn't require fonts
+                # Try ImageWriter without text rendering to avoid font issues
                 try:
-                    from barcode.writer import SVGWriter
-                    svg_writer = SVGWriter()
-                    svg_code = Code128(barcode_value, writer=svg_writer)
-                    svg_filepath = filepath + ".svg"
-                    svg_code.save(filepath)
-                    return svg_filepath
-                except Exception as svg_error:
-                    # If SVG also fails, return None
-                    print(f"Barcode generation failed (PNG: {str(save_error)}, SVG: {str(svg_error)})")
-                    return None
+                    writer_no_text = ImageWriter()
+                    # Disable text rendering to avoid font loading
+                    if hasattr(writer_no_text, 'write_text'):
+                        writer_no_text.write_text = False
+                    code128_no_text = Code128(barcode_value, writer=writer_no_text)
+                    code128_no_text.save(filepath)
+                    return filepath + ".png"
+                except Exception as no_text_error:
+                    # If that fails, try SVG then convert to PNG
+                    try:
+                        from barcode.writer import SVGWriter
+                        svg_writer = SVGWriter()
+                        svg_code = Code128(barcode_value, writer=svg_writer)
+                        svg_temp_path = filepath + "_temp.svg"
+                        svg_code.save(filepath)
+                        
+                        # Try to convert SVG to PNG using cairosvg
+                        try:
+                            import cairosvg
+                            png_filepath = filepath + ".png"
+                            svg_filepath = filepath + ".svg"
+                            cairosvg.svg2png(url=svg_filepath, write_to=png_filepath)
+                            # Clean up SVG file
+                            if os.path.exists(svg_filepath):
+                                os.remove(svg_filepath)
+                            return png_filepath
+                        except ImportError:
+                            # cairosvg not available - user needs to install it for PNG conversion
+                            raise Exception(
+                                "PNG generation requires additional library. "
+                                "Please install: pip install cairosvg\n\n"
+                                f"Original error: {str(save_error)}"
+                            )
+                    except Exception as svg_error:
+                        raise Exception(f"PNG generation failed: {str(save_error)}")
             raise
         
         return filepath + ".png"
@@ -149,39 +174,86 @@ def download_barcode_to_desktop(item_id, item_name):
         os.makedirs(desktop_path, exist_ok=True)
         
         # Save barcode with explicit handling for executable mode
+        # Always save as PNG - try multiple methods if needed
         try:
-            # Save barcode (save() method adds .png extension automatically)
+            # Method 1: Try standard PNG save
             code128.save(filepath)
+            actual_filepath = filepath + ".png"
+            if os.path.exists(actual_filepath):
+                return actual_filepath
         except Exception as save_error:
-            # If save fails due to resource issues, try alternative method
             error_msg_lower = str(save_error).lower()
             if "cannot open resource" in error_msg_lower or "resource" in error_msg_lower or "string argument" in error_msg_lower:
-                # Use SVG format which doesn't require fonts or resources
+                # Method 2: Try PNG without text rendering (avoids font loading)
+                try:
+                    writer_no_text = ImageWriter()
+                    # Disable text rendering to avoid font issues
+                    if hasattr(writer_no_text, 'write_text'):
+                        writer_no_text.write_text = False
+                    code128_no_text = Code128(barcode_value, writer=writer_no_text)
+                    code128_no_text.save(filepath)
+                    actual_filepath = filepath + ".png"
+                    if os.path.exists(actual_filepath):
+                        return actual_filepath
+                except Exception:
+                    pass
+                
+                # Method 3: Generate SVG then convert to PNG
                 try:
                     from barcode.writer import SVGWriter
                     svg_writer = SVGWriter()
                     svg_code = Code128(barcode_value, writer=svg_writer)
                     svg_filepath = filepath + ".svg"
-                    # Use save() method which handles file writing correctly
-                    svg_code.save(filepath)
-                    # Return SVG path
-                    return svg_filepath
+                    svg_code.save(filepath)  # Saves as .svg
+                    
+                    # Convert SVG to PNG using cairosvg
+                    try:
+                        import cairosvg
+                        png_filepath = filepath + ".png"
+                        cairosvg.svg2png(url=svg_filepath, write_to=png_filepath)
+                        # Clean up SVG file
+                        if os.path.exists(svg_filepath):
+                            os.remove(svg_filepath)
+                        if os.path.exists(png_filepath):
+                            return png_filepath
+                    except ImportError:
+                        # cairosvg not available - try alternative: use svglib
+                        try:
+                            from svglib.svglib import svg2rlg
+                            from reportlab.graphics import renderPM
+                            drawing = svg2rlg(svg_filepath)
+                            png_filepath = filepath + ".png"
+                            renderPM.drawToFile(drawing, png_filepath, fmt='PNG')
+                            # Clean up SVG file
+                            if os.path.exists(svg_filepath):
+                                os.remove(svg_filepath)
+                            if os.path.exists(png_filepath):
+                                return png_filepath
+                        except ImportError:
+                            # No conversion library available
+                            raise Exception(
+                                "PNG generation failed. To enable PNG generation in executables, "
+                                "install one of these libraries:\n"
+                                "  pip install cairosvg\n"
+                                "  OR\n"
+                                "  pip install svglib reportlab\n\n"
+                                f"Original error: {str(save_error)}"
+                            )
                 except Exception as svg_error:
-                    # If SVG also fails, try a different approach
-                    raise Exception(f"Both PNG and SVG generation failed. PNG error: {str(save_error)}. SVG error: {str(svg_error)}")
+                    raise Exception(
+                        f"PNG generation failed. Tried multiple methods:\n"
+                        f"1. Standard PNG: {str(save_error)}\n"
+                        f"2. PNG without text: Failed\n"
+                        f"3. SVG to PNG conversion: {str(svg_error)}\n\n"
+                        "Please install cairosvg or svglib for PNG conversion."
+                    )
             else:
                 raise
         
-        # Return the actual file path (with .png extension added by save())
+        # Verify PNG file was created
         actual_filepath = filepath + ".png"
-        
-        # Verify file was created
         if not os.path.exists(actual_filepath):
-            # Check if .svg was created instead
-            svg_filepath = filepath + ".svg"
-            if os.path.exists(svg_filepath):
-                return svg_filepath
-            raise Exception(f"Barcode file was not created at {actual_filepath}")
+            raise Exception(f"PNG barcode file was not created at {actual_filepath}")
         
         return actual_filepath
     except ImportError:

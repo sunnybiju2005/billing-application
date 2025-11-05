@@ -6,6 +6,8 @@
 
 # Barcode generation (Code 11 format)
 python-barcode[images]>=0.15.1
+# For PNG conversion in executables (optional but recommended)
+cairosvg>=2.7.0
 
 # Firebase (for cloud database)
 firebase-admin>=6.0.0
