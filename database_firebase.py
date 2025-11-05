@@ -430,9 +430,22 @@ db = None
 try:
     db = FirebaseDatabase()
     DATABASE_TYPE = 'firebase'
-except (ImportError, FileNotFoundError, Exception) as e:
-    # Firebase not available - let database.py handle the fallback
+except ImportError as e:
+    # Firebase package not installed
     DATABASE_TYPE = None
     db = None
-    # Don't print here - let database.py handle the messaging
+except FileNotFoundError as e:
+    # Credentials file not found
+    DATABASE_TYPE = None
+    db = None
+except Exception as e:
+    # Other errors during initialization - log for debugging
+    DATABASE_TYPE = None
+    db = None
+    # Print error for debugging (can be removed in production)
+    import sys
+    if '--debug' in sys.argv or '--verbose' in sys.argv:
+        print(f"Firebase initialization error: {str(e)}")
+        import traceback
+        traceback.print_exc()
 

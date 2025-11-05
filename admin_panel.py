@@ -921,11 +921,21 @@ class AdminPanel:
         ).pack(side=tk.LEFT)
         
         # Check Firebase status for sync button
+        # Check the actual db instance type (already imported at top of file)
+        is_firebase = False
         try:
-            from database_firebase import DATABASE_TYPE
-            is_firebase = (DATABASE_TYPE == 'firebase')
-        except (ImportError, AttributeError):
-            is_firebase = False
+            # Check if db is FirebaseDatabase instance
+            if db is not None and 'Firebase' in type(db).__name__:
+                is_firebase = True
+            else:
+                # Also check DATABASE_TYPE as backup
+                try:
+                    from database_firebase import DATABASE_TYPE
+                    is_firebase = (DATABASE_TYPE == 'firebase')
+                except:
+                    pass
+        except:
+            pass
         
         # Sync button (only enabled if Firebase is connected)
         sync_btn = tk.Button(
@@ -961,17 +971,27 @@ class AdminPanel:
         ).pack(anchor='w', pady=(0, 20))
         
         # Check Firebase connection status
+        # Check the actual db instance type (already imported at top of file)
+        is_firebase_connected = False
         try:
-            from database_firebase import DATABASE_TYPE
-            if DATABASE_TYPE == 'firebase':
-                connection_status = "✅ Connected to Firebase Firestore"
-                status_color = '#27AE60'
-                db_type = "Firebase Firestore (Cloud)"
+            # Check if db is FirebaseDatabase instance
+            if db is not None and 'Firebase' in type(db).__name__:
+                is_firebase_connected = True
             else:
-                connection_status = "❌ Firebase Not Connected"
-                status_color = '#E74C3C'
-                db_type = "JSON File (Local)"
-        except (ImportError, AttributeError):
+                # Also check DATABASE_TYPE as backup
+                try:
+                    from database_firebase import DATABASE_TYPE
+                    is_firebase_connected = (DATABASE_TYPE == 'firebase')
+                except:
+                    pass
+        except:
+            pass
+        
+        if is_firebase_connected:
+            connection_status = "✅ Connected to Firebase Firestore"
+            status_color = '#27AE60'
+            db_type = "Firebase Firestore (Cloud)"
+        else:
             connection_status = "❌ Firebase Not Connected"
             status_color = '#E74C3C'
             db_type = "JSON File (Local)"

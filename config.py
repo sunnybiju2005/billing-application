@@ -51,8 +51,8 @@ COLUMN_WIDTH_OPTIONS_80MM = [48, 56, 72]
 # Default credentials (for demo purposes)
 DEFAULT_CREDENTIALS = {
     'admin': {
-        'username': 'drop',
-        'password': 'drop',
+        'username': 'DROP',
+        'password': '072024',
         'role': 'admin',
         'name': 'Administrator'
     },

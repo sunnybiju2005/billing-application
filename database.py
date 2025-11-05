@@ -16,13 +16,17 @@ try:
     from database_firebase import db, DATABASE_TYPE
     if DATABASE_TYPE == 'firebase' and db is not None:
         # Firebase is being used
-        print("✓ Connected to Firebase Firestore")
+        print("Connected to Firebase Firestore")
     else:
         # Firebase import failed, use JSON
         raise ImportError("Firebase not configured")
 except (ImportError, AttributeError, Exception) as e:
     # Fall back to JSON database - define Database class below
     db = None
+    # Log error for debugging if verbose mode
+    import sys
+    if '--debug' in sys.argv or '--verbose' in sys.argv:
+        print(f"Firebase import failed, using JSON: {str(e)}")
 
 class Database:
     """Simple JSON-based database for demo purposes"""
