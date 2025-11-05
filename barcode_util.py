@@ -4,7 +4,6 @@ Barcode generation utility for items (Code128 format)
 
 import os
 import sys
-from datetime import datetime
 
 def resource_path(relative_path):
     """Get absolute path to resource, works for dev and for PyInstaller/auto-py-to-exe"""
@@ -61,14 +60,20 @@ def generate_barcode(item_id, item_name):
         try:
             code128.save(filepath)
         except Exception as save_error:
-            if "cannot open resource" in str(save_error).lower():
+            error_msg_lower = str(save_error).lower()
+            if "cannot open resource" in error_msg_lower or "string argument" in error_msg_lower:
                 # Fallback to SVG format which doesn't require fonts
-                from barcode.writer import SVGWriter
-                svg_writer = SVGWriter()
-                svg_code = Code128(barcode_value, writer=svg_writer)
-                svg_filepath = filepath + ".svg"
-                svg_code.save(filepath)
-                return svg_filepath
+                try:
+                    from barcode.writer import SVGWriter
+                    svg_writer = SVGWriter()
+                    svg_code = Code128(barcode_value, writer=svg_writer)
+                    svg_filepath = filepath + ".svg"
+                    svg_code.save(filepath)
+                    return svg_filepath
+                except Exception as svg_error:
+                    # If SVG also fails, return None
+                    print(f"Barcode generation failed (PNG: {str(save_error)}, SVG: {str(svg_error)})")
+                    return None
             raise
         
         return filepath + ".png"
@@ -149,27 +154,21 @@ def download_barcode_to_desktop(item_id, item_name):
             code128.save(filepath)
         except Exception as save_error:
             # If save fails due to resource issues, try alternative method
-            if "cannot open resource" in str(save_error).lower() or "resource" in str(save_error).lower():
-                # Try using PIL/Pillow directly with minimal dependencies
-                from PIL import Image
-                import io
-                
-                # Generate barcode as SVG first, then convert
-                from barcode.writer import SVGWriter
-                svg_writer = SVGWriter()
-                svg_code = Code128(barcode_value, writer=svg_writer)
-                svg_buffer = io.StringIO()
-                svg_code.write(svg_buffer)
-                svg_content = svg_buffer.getvalue()
-                
-                # Convert SVG to PNG using PIL (if available)
-                # For now, save as SVG which doesn't need fonts
-                svg_filepath = filepath + ".svg"
-                with open(svg_filepath, 'w') as f:
-                    f.write(svg_content)
-                
-                # Return SVG path instead
-                return svg_filepath
+            error_msg_lower = str(save_error).lower()
+            if "cannot open resource" in error_msg_lower or "resource" in error_msg_lower or "string argument" in error_msg_lower:
+                # Use SVG format which doesn't require fonts or resources
+                try:
+                    from barcode.writer import SVGWriter
+                    svg_writer = SVGWriter()
+                    svg_code = Code128(barcode_value, writer=svg_writer)
+                    svg_filepath = filepath + ".svg"
+                    # Use save() method which handles file writing correctly
+                    svg_code.save(filepath)
+                    # Return SVG path
+                    return svg_filepath
+                except Exception as svg_error:
+                    # If SVG also fails, try a different approach
+                    raise Exception(f"Both PNG and SVG generation failed. PNG error: {str(save_error)}. SVG error: {str(svg_error)}")
             else:
                 raise
         
