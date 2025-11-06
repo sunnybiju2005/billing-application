@@ -97,18 +97,21 @@ class Database:
                 'name': DEFAULT_CREDENTIALS['staff']['name']
             })
         
-        # Add sample inventory if empty
-        if not self.data['inventory']:
-            self.data['inventory'] = [
-                {'id': 1, 'name': 'T-Shirt', 'category': 'Tops', 'price': 29.99, 'stock': 50},
-                {'id': 2, 'name': 'Jeans', 'category': 'Bottoms', 'price': 79.99, 'stock': 30},
-                {'id': 3, 'name': 'Jacket', 'category': 'Outerwear', 'price': 129.99, 'stock': 20},
-                {'id': 4, 'name': 'Dress', 'category': 'Dresses', 'price': 59.99, 'stock': 25},
-                {'id': 5, 'name': 'Sneakers', 'category': 'Footwear', 'price': 89.99, 'stock': 40},
-                {'id': 6, 'name': 'Cap', 'category': 'Accessories', 'price': 19.99, 'stock': 60},
-            ]
+        # Initialize empty inventory if not exists
+        if 'inventory' not in self.data:
+            self.data['inventory'] = []
         
-        self.save()
+        # Remove sample items if they exist
+        sample_item_names = ['T-Shirt', 'Jeans', 'Jacket', 'Dress', 'Sneakers', 'Cap']
+        original_count = len(self.data['inventory'])
+        self.data['inventory'] = [
+            item for item in self.data['inventory'] 
+            if item.get('name') not in sample_item_names
+        ]
+        
+        # Save if items were removed
+        if len(self.data['inventory']) < original_count:
+            self.save()
     
     def save(self):
         """Save data to JSON file"""
@@ -192,6 +195,12 @@ class Database:
         """Delete inventory item"""
         self.data['inventory'] = [i for i in self.data['inventory'] if i['id'] != item_id]
         self.save()
+    
+    def delete_all_inventory_items(self):
+        """Delete all inventory items"""
+        self.data['inventory'] = []
+        self.save()
+        return True
     
     def update_stock(self, item_id, quantity_change):
         """Update stock quantity for an item"""
@@ -331,6 +340,15 @@ class Database:
             self.save()
             return True
         return False
+    
+    def update_bill(self, bill_id, **kwargs):
+        """Update a bill by ID"""
+        for bill in self.data['bills']:
+            if bill['id'] == bill_id or bill.get('numeric_id') == bill_id:
+                bill.update(kwargs)
+                self.save()
+                return bill
+        return None
 
 # Global database instance (will be Firebase if available, otherwise JSON)
 if db is None:

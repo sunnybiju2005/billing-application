@@ -119,22 +119,16 @@ class FirebaseDatabase:
             }
             users_ref.add(staff_data)
         
-        # Initialize sample inventory if empty
+        # Initialize empty inventory if not exists
         inventory_ref = self._get_collection('inventory')
-        inventory_docs = inventory_ref.stream()
+        inventory_docs = list(inventory_ref.stream())
         
-        if not any(inventory_docs):
-            sample_items = [
-                {'id': 1, 'name': 'T-Shirt', 'category': 'Tops', 'price': 29.99, 'stock': 50},
-                {'id': 2, 'name': 'Jeans', 'category': 'Bottoms', 'price': 79.99, 'stock': 30},
-                {'id': 3, 'name': 'Jacket', 'category': 'Outerwear', 'price': 129.99, 'stock': 20},
-                {'id': 4, 'name': 'Dress', 'category': 'Dresses', 'price': 59.99, 'stock': 25},
-                {'id': 5, 'name': 'Sneakers', 'category': 'Footwear', 'price': 89.99, 'stock': 40},
-                {'id': 6, 'name': 'Cap', 'category': 'Accessories', 'price': 19.99, 'stock': 60},
-            ]
-            
-            for item in sample_items:
-                inventory_ref.add(item)
+        # Remove sample items if they exist
+        sample_item_names = ['T-Shirt', 'Jeans', 'Jacket', 'Dress', 'Sneakers', 'Cap']
+        for doc in inventory_docs:
+            item_data = doc.to_dict()
+            if item_data.get('name') in sample_item_names:
+                doc.reference.delete()
     
     # User management
     def authenticate_user(self, username, password, role):
@@ -253,6 +247,18 @@ class FirebaseDatabase:
             item_doc.reference.delete()
             return True
         return False
+    
+    def delete_all_inventory_items(self):
+        """Delete all inventory items"""
+        inventory_ref = self._get_collection('inventory')
+        all_items = inventory_ref.stream()
+        
+        deleted_count = 0
+        for item_doc in all_items:
+            item_doc.reference.delete()
+            deleted_count += 1
+        
+        return deleted_count > 0
     
     def update_stock(self, item_id, quantity_change):
         """Update stock quantity for an item"""
@@ -421,6 +427,26 @@ class FirebaseDatabase:
                 bill_doc.reference.delete()
                 return True
         return False
+    
+    def update_bill(self, bill_id, **kwargs):
+        """Update a bill by ID"""
+        bills_ref = self._get_collection('bills')
+        # Try exact match first
+        query = bills_ref.where('id', '==', bill_id).stream()
+        for bill_doc in query:
+            bill_doc.reference.update(kwargs)
+            updated_data = bill_doc.to_dict()
+            updated_data.update(kwargs)
+            return updated_data
+        # Try numeric_id if bill_id is numeric
+        if isinstance(bill_id, (int, float)):
+            query = bills_ref.where('numeric_id', '==', int(bill_id)).stream()
+            for bill_doc in query:
+                bill_doc.reference.update(kwargs)
+                updated_data = bill_doc.to_dict()
+                updated_data.update(kwargs)
+                return updated_data
+        return None
 
 # This file exports db only if Firebase is successfully initialized
 # The main database.py file will import from here if available, otherwise use JSON

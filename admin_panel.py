@@ -642,6 +642,19 @@ class AdminPanel:
         
         tk.Button(
             action_frame,
+            text="🗑️ Remove All Items from Bills",
+            font=('Arial', 11),
+            bg='#8E44AD',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=20,
+            pady=8,
+            cursor='hand2',
+            command=self._remove_all_items_from_bills
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            action_frame,
             text="📥 Export Filtered Data",
             font=('Arial', 11),
             bg='#27AE60',
@@ -1348,6 +1361,19 @@ To use Firebase, see FIREBASE_SETUP.md
             pady=8,
             cursor='hand2',
             command=self._delete_item
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            action_frame,
+            text="🗑️ Remove All Items",
+            font=('Arial', 11),
+            bg='#C0392B',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=20,
+            pady=8,
+            cursor='hand2',
+            command=self._delete_all_items
         ).pack(side=tk.LEFT, padx=5)
         
         tk.Button(
@@ -2855,9 +2881,37 @@ For support, contact your administrator.
             display_bill_id = f"DR{str(int(display_bill_id)).zfill(4)}"
         
         if messagebox.askyesno("Confirm", f"Are you sure you want to delete bill {display_bill_id}?"):
+            # Collect item IDs from this bill to remove from database
+            item_ids_to_remove = []
+            for item in bill_to_delete.get('items', []):
+                item_id = item.get('inventory_id')
+                if item_id and item_id not in item_ids_to_remove:
+                    item_ids_to_remove.append(item_id)
+            
+            # Delete the bill
             db.delete_bill(bill_to_delete.get('id'))
+            
+            # Remove items from database
+            items_removed = []
+            for item_id in item_ids_to_remove:
+                try:
+                    # Check if item exists before deleting
+                    item = db.get_inventory_item(item_id)
+                    if item:
+                        db.delete_inventory_item(item_id)
+                        items_removed.append(item.get('name', f'Item {item_id}'))
+                except Exception:
+                    pass
+            
             self._refresh_bills()
-            messagebox.showinfo("Success", f"Bill {display_bill_id} deleted successfully")
+            if items_removed:
+                messagebox.showinfo(
+                    "Success", 
+                    f"Bill {display_bill_id} deleted successfully.\n\n"
+                    f"Items removed from database:\n" + "\n".join(f"- {name}" for name in items_removed)
+                )
+            else:
+                messagebox.showinfo("Success", f"Bill {display_bill_id} deleted successfully")
     
     def _delete_all_bills(self):
         """Delete all bills with confirmation"""
@@ -2897,6 +2951,14 @@ For support, contact your administrator.
             return
         
         try:
+            # Collect all unique item IDs from all bills before deleting
+            all_item_ids_to_remove = set()
+            for bill in bills:
+                for item in bill.get('items', []):
+                    item_id = item.get('inventory_id')
+                    if item_id:
+                        all_item_ids_to_remove.add(item_id)
+            
             # Delete all bills one by one
             deleted_count = 0
             for bill in bills:
@@ -2910,20 +2972,40 @@ For support, contact your administrator.
                     # Continue with next bill if one fails
                     pass
             
+            # Remove all items from database
+            items_removed = []
+            for item_id in all_item_ids_to_remove:
+                try:
+                    # Check if item exists before deleting
+                    item = db.get_inventory_item(item_id)
+                    if item:
+                        db.delete_inventory_item(item_id)
+                        items_removed.append(item.get('name', f'Item {item_id}'))
+                except Exception:
+                    pass
+            
             # Refresh the view
             self._refresh_bills()
             
+            # Refresh items view if it exists
+            if hasattr(self, 'items_tree') and self.items_tree:
+                try:
+                    self._refresh_items()
+                except:
+                    pass
+            
+            success_message = f"All bills deleted successfully!\n\nDeleted: {deleted_count} bill(s)"
+            if items_removed:
+                success_message += f"\n\nItems removed from database: {len(items_removed)}"
+            
             if deleted_count == total_bills:
-                messagebox.showinfo(
-                    "Success",
-                    f"All bills deleted successfully!\n\n"
-                    f"Deleted: {deleted_count} bill(s)"
-                )
+                messagebox.showinfo("Success", success_message)
             elif deleted_count > 0:
                 messagebox.showwarning(
                     "Partial Success",
                     f"Some bills were deleted, but not all.\n\n"
                     f"Deleted: {deleted_count} out of {total_bills} bill(s)"
+                    + (f"\n\nItems removed from database: {len(items_removed)}" if items_removed else "")
                 )
             else:
                 messagebox.showerror(
@@ -2935,6 +3017,113 @@ For support, contact your administrator.
             messagebox.showerror(
                 "Error",
                 f"Failed to delete all bills:\n\n{str(e)}"
+            )
+    
+    def _remove_all_items_from_bills(self):
+        """Remove all items from all bills and delete those items from database"""
+        bills = db.get_all_bills()
+        total_bills = len(bills)
+        
+        if total_bills == 0:
+            messagebox.showinfo("Info", "No bills found. Nothing to remove.")
+            return
+        
+        # Collect all unique item IDs from all bills
+        all_item_ids_to_remove = set()
+        bills_with_items = 0
+        for bill in bills:
+            items = bill.get('items', [])
+            if items:
+                bills_with_items += 1
+                for item in items:
+                    item_id = item.get('inventory_id')
+                    if item_id:
+                        all_item_ids_to_remove.add(item_id)
+        
+        if bills_with_items == 0:
+            messagebox.showinfo("Info", "No items found in any bills. Nothing to remove.")
+            return
+        
+        # Confirm removal
+        confirm_message = (
+            f"⚠️ WARNING: This will remove ALL items from ALL bills!\n\n"
+            f"Total bills: {total_bills}\n"
+            f"Bills with items: {bills_with_items}\n"
+            f"Unique items to remove: {len(all_item_ids_to_remove)}\n\n"
+            f"This will:\n"
+            f"1. Clear all items from all bills\n"
+            f"2. Set bill totals to ₹0.00\n"
+            f"3. Remove {len(all_item_ids_to_remove)} item(s) from inventory database\n\n"
+            f"This action CANNOT be undone.\n\n"
+            f"Are you absolutely sure you want to continue?"
+        )
+        
+        # First confirmation
+        if not messagebox.askyesno(
+            "Remove All Items from Bills - First Confirmation",
+            confirm_message,
+            icon='warning'
+        ):
+            return
+        
+        # Second confirmation for extra safety
+        if not messagebox.askyesno(
+            "Remove All Items from Bills - Final Confirmation",
+            f"⚠️ FINAL WARNING!\n\n"
+            f"You are about to:\n"
+            f"- Remove items from {bills_with_items} bill(s)\n"
+            f"- Delete {len(all_item_ids_to_remove)} item(s) from inventory\n\n"
+            f"This action is PERMANENT and CANNOT be undone!\n\n"
+            f"Type YES to confirm or click No to cancel.",
+            icon='error'
+        ):
+            return
+        
+        try:
+            # Remove items from all bills
+            bills_updated = 0
+            for bill in bills:
+                bill_id = bill.get('id')
+                if bill.get('items'):
+                    try:
+                        db.update_bill(bill_id, items=[], total=0.0)
+                        bills_updated += 1
+                    except Exception:
+                        pass
+            
+            # Remove all items from database
+            items_removed = []
+            for item_id in all_item_ids_to_remove:
+                try:
+                    # Check if item exists before deleting
+                    item = db.get_inventory_item(item_id)
+                    if item:
+                        db.delete_inventory_item(item_id)
+                        items_removed.append(item.get('name', f'Item {item_id}'))
+                except Exception:
+                    pass
+            
+            # Refresh the views
+            self._refresh_bills()
+            
+            # Refresh items view if it exists
+            if hasattr(self, 'items_tree') and self.items_tree:
+                try:
+                    self._refresh_items()
+                except:
+                    pass
+            
+            success_message = (
+                f"Items removed from bills successfully!\n\n"
+                f"Bills updated: {bills_updated}\n"
+                f"Items removed from database: {len(items_removed)}"
+            )
+            
+            messagebox.showinfo("Success", success_message)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Failed to remove items from bills:\n\n{str(e)}"
             )
     
     # Reports Methods
@@ -3242,6 +3431,76 @@ For support, contact your administrator.
                 messagebox.showinfo("Success", f"Item '{item_name}' deleted successfully")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete item:\n\n{str(e)}")
+    
+    def _delete_all_items(self):
+        """Delete all items from inventory"""
+        # Get current inventory count
+        inventory = db.get_all_inventory()
+        item_count = len(inventory)
+        
+        if item_count == 0:
+            messagebox.showinfo("Info", "No items to delete. Inventory is already empty.")
+            return
+        
+        # Confirm deletion with warning
+        if messagebox.askyesno(
+            "Confirm Delete All",
+            f"⚠️ WARNING: This will delete ALL {item_count} items from your inventory!\n\n"
+            f"This action cannot be undone.\n\n"
+            f"Historical bill records will remain, but all items will be removed\n"
+            f"from the inventory.\n\n"
+            f"Are you absolutely sure you want to delete all items?",
+            icon='warning'
+        ):
+            # Double confirmation for safety
+            if messagebox.askyesno(
+                "Final Confirmation",
+                f"⚠️ FINAL WARNING!\n\n"
+                f"You are about to delete ALL {item_count} items.\n\n"
+                f"This action is PERMANENT and CANNOT be undone.\n\n"
+                f"Type YES to confirm:",
+                icon='error'
+            ):
+                try:
+                    # Check if any items are used in bills
+                    bills = db.get_all_bills()
+                    items_used = False
+                    used_items = []
+                    
+                    for bill in bills:
+                        for bill_item in bill['items']:
+                            item_id = bill_item.get('inventory_id')
+                            if item_id:
+                                # Find item name
+                                for inv_item in inventory:
+                                    if inv_item['id'] == item_id:
+                                        item_name = inv_item['name']
+                                        if item_name not in used_items:
+                                            used_items.append(item_name)
+                                        items_used = True
+                                        break
+                    
+                    if items_used:
+                        response = messagebox.askyesno(
+                            "Items Used in Bills",
+                            f"Some items have been used in existing bills.\n\n"
+                            f"Deleting all items will remove them from your inventory,\n"
+                            f"but historical bill records will remain.\n\n"
+                            f"Do you still want to delete all items?",
+                            icon='warning'
+                        )
+                        if not response:
+                            return
+                    
+                    # Delete all items
+                    db.delete_all_inventory_items()
+                    self._refresh_items()
+                    messagebox.showinfo(
+                        "Success", 
+                        f"All {item_count} items have been deleted successfully from the database."
+                    )
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to delete all items:\n\n{str(e)}")
     
     # Utility Methods
     def _toggle_theme(self):
