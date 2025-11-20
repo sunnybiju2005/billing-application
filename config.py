@@ -38,11 +38,13 @@ def get_data_dir():
 DATA_DIR = get_data_dir()
 BILLS_DIR = os.path.join(DATA_DIR, "bills")
 RECEIPTS_DIR = os.path.join(DATA_DIR, "receipts")
+BILLS_JSON_DIR = os.path.join(DATA_DIR, "bills_json")  # Individual bills as JSON files
 
 # Create directories if they don't exist
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(BILLS_DIR, exist_ok=True)
 os.makedirs(RECEIPTS_DIR, exist_ok=True)
+os.makedirs(BILLS_JSON_DIR, exist_ok=True)
 
 # Default theme (can be 'light' or 'dark')
 DEFAULT_THEME = 'light'

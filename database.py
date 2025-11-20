@@ -6,7 +6,7 @@ Automatically uses Firebase Firestore if available, otherwise falls back to JSON
 import json
 import os
 from datetime import datetime, timedelta
-from config import DATA_DIR, BILLS_DIR, DEFAULT_CREDENTIALS
+from config import DATA_DIR, BILLS_DIR, BILLS_JSON_DIR, DEFAULT_CREDENTIALS
 
 DATABASE_FILE = os.path.join(DATA_DIR, "database.json")
 
@@ -34,6 +34,8 @@ class Database:
     def __init__(self):
         self.data = self._load_data()
         self._initialize_default_data()
+        # Migrate existing bills to individual JSON files
+        self._migrate_bills_to_individual_files()
     
     def _load_data(self):
         """Load data from JSON file"""
@@ -245,8 +247,21 @@ class Database:
         # Update monthly sales for items
         self._update_monthly_sales(items)
         
+        # Save individual bill as JSON file
+        self._save_individual_bill(bill)
+        
         self.save()
         return bill
+    
+    def _save_individual_bill(self, bill):
+        """Save individual bill as separate JSON file"""
+        try:
+            os.makedirs(BILLS_JSON_DIR, exist_ok=True)
+            bill_file = os.path.join(BILLS_JSON_DIR, f"{bill['id']}.json")
+            with open(bill_file, 'w', encoding='utf-8') as f:
+                json.dump(bill, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass  # Silently fail if individual bill save fails
     
     def _update_monthly_sales(self, items):
         """Update monthly sales quantity for items"""
@@ -337,9 +352,34 @@ class Database:
         original_count = len(self.data['bills'])
         self.data['bills'] = [b for b in self.data['bills'] if b['id'] != bill_id and b.get('numeric_id') != bill_id]
         if len(self.data['bills']) < original_count:
+            # Delete individual bill file
+            self._delete_individual_bill(bill_id)
             self.save()
             return True
         return False
+    
+    def _delete_individual_bill(self, bill_id):
+        """Delete individual bill JSON file"""
+        try:
+            bill_file = os.path.join(BILLS_JSON_DIR, f"{bill_id}.json")
+            if os.path.exists(bill_file):
+                os.remove(bill_file)
+        except Exception:
+            pass  # Silently fail if deletion fails
+    
+    def _migrate_bills_to_individual_files(self):
+        """Migrate all existing bills to individual JSON files"""
+        try:
+            os.makedirs(BILLS_JSON_DIR, exist_ok=True)
+            for bill in self.data.get('bills', []):
+                bill_id = bill.get('id')
+                if bill_id:
+                    bill_file = os.path.join(BILLS_JSON_DIR, f"{bill_id}.json")
+                    # Only save if file doesn't exist (avoid overwriting)
+                    if not os.path.exists(bill_file):
+                        self._save_individual_bill(bill)
+        except Exception:
+            pass  # Silently fail if migration fails
     
     def update_bill(self, bill_id, **kwargs):
         """Update a bill by ID"""

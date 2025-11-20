@@ -38,6 +38,8 @@ class FirebaseDatabase:
         self._initialize_default_data()
         # Initial sync to local storage
         self._sync_to_local()
+        # Migrate existing bills to individual JSON files
+        self._migrate_bills_to_individual_files()
         # Start background sync thread
         self._start_background_sync()
     
@@ -543,7 +545,22 @@ class FirebaseDatabase:
         
         # Always save to local (ensures data is never lost, even if Firebase is full)
         self._sync_to_local()
+        
+        # Save individual bill as JSON file
+        self._save_individual_bill(bill_data)
+        
         return bill_data
+    
+    def _save_individual_bill(self, bill):
+        """Save individual bill as separate JSON file"""
+        try:
+            from config import BILLS_JSON_DIR
+            os.makedirs(BILLS_JSON_DIR, exist_ok=True)
+            bill_file = os.path.join(BILLS_JSON_DIR, f"{bill['id']}.json")
+            with open(bill_file, 'w', encoding='utf-8') as f:
+                json.dump(bill, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass  # Silently fail if individual bill save fails
     
     def _update_monthly_sales(self, items):
         """Update monthly sales quantity for items"""
@@ -673,11 +690,18 @@ class FirebaseDatabase:
             
             # Always save to local (ensures data is never lost)
             self._sync_to_local()
+            
+            # Delete individual bill file
+            self._delete_individual_bill(bill_id)
+            
             return True
         # Try numeric_id if bill_id is numeric
         if isinstance(bill_id, (int, float)):
             query = bills_ref.where('numeric_id', '==', int(bill_id)).stream()
             for bill_doc in query:
+                bill_data = bill_doc.to_dict()
+                actual_bill_id = bill_data.get('id', bill_id)
+                
                 try:
                     bill_doc.reference.delete()
                     self.offline_mode = False
@@ -698,8 +722,52 @@ class FirebaseDatabase:
                 
                 # Always save to local (ensures data is never lost)
                 self._sync_to_local()
+                
+                # Delete individual bill file
+                self._delete_individual_bill(actual_bill_id)
+                
                 return True
         return False
+    
+    def _delete_individual_bill(self, bill_id):
+        """Delete individual bill JSON file"""
+        try:
+            from config import BILLS_JSON_DIR
+            bill_file = os.path.join(BILLS_JSON_DIR, f"{bill_id}.json")
+            if os.path.exists(bill_file):
+                os.remove(bill_file)
+        except Exception:
+            pass  # Silently fail if deletion fails
+    
+    def _migrate_bills_to_individual_files(self):
+        """Migrate all existing bills to individual JSON files"""
+        try:
+            from config import BILLS_JSON_DIR
+            os.makedirs(BILLS_JSON_DIR, exist_ok=True)
+            
+            # Get all bills from local database file
+            if os.path.exists(DATABASE_FILE):
+                with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
+                    local_data = json.load(f)
+                    for bill in local_data.get('bills', []):
+                        bill_id = bill.get('id')
+                        if bill_id:
+                            bill_file = os.path.join(BILLS_JSON_DIR, f"{bill_id}.json")
+                            # Only save if file doesn't exist (avoid overwriting)
+                            if not os.path.exists(bill_file):
+                                self._save_individual_bill(bill)
+        except Exception:
+            pass  # Silently fail if migration fails
+    
+    def _delete_individual_bill(self, bill_id):
+        """Delete individual bill JSON file"""
+        try:
+            from config import BILLS_JSON_DIR
+            bill_file = os.path.join(BILLS_JSON_DIR, f"{bill_id}.json")
+            if os.path.exists(bill_file):
+                os.remove(bill_file)
+        except Exception:
+            pass  # Silently fail if deletion fails
     
     def update_bill(self, bill_id, **kwargs):
         """Update a bill by ID"""
