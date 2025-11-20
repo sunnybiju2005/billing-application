@@ -7,7 +7,11 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
 import os
+import sys
+import json
 import csv
+import threading
+import time
 from database import db
 from config import (
     SHOP_NAME, SHOP_TAGLINE, SHOP_ADDRESS, DEFAULT_BILL_WIDTH_MM, DEFAULT_BILL_HEIGHT_MM, 
@@ -1068,6 +1072,69 @@ Total Inventory Items: {len(inventory)}"""
             anchor='w'
         ).pack(anchor='w')
         
+        # Local storage information
+        from config import DATA_DIR
+        local_db_file = os.path.join(DATA_DIR, "database.json")
+        local_file_exists = os.path.exists(local_db_file)
+        
+        if local_file_exists:
+            try:
+                file_size = os.path.getsize(local_db_file)
+                file_size_kb = file_size / 1024
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(local_db_file))
+                file_date = file_mtime.strftime("%Y-%m-%d %H:%M:%S")
+            except:
+                file_size_kb = 0
+                file_date = "Unknown"
+        else:
+            file_size_kb = 0
+            file_date = "File not found"
+        
+        # Local storage frame
+        local_storage_frame = tk.Frame(info_frame, bg='#E8F5E9', relief=tk.SOLID, bd=1, padx=20, pady=15)
+        local_storage_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(
+            local_storage_frame,
+            text="Local Storage (Backup)",
+            font=('Arial', 11, 'bold'),
+            bg='#E8F5E9',
+            fg='#2C3E50'
+        ).pack(anchor='w', pady=(0, 10))
+        
+        local_info_text = f"""File Location: {local_db_file}
+File Status: {'✅ Exists' if local_file_exists else '❌ Not Found'}
+File Size: {file_size_kb:.2f} KB
+Last Modified: {file_date}"""
+        
+        tk.Label(
+            local_storage_frame,
+            text=local_info_text,
+            font=('Arial', 10),
+            bg='#E8F5E9',
+            fg='#2C3E50',
+            justify=tk.LEFT,
+            anchor='w'
+        ).pack(anchor='w')
+        
+        # View local database button
+        if local_file_exists:
+            view_local_btn = tk.Button(
+                local_storage_frame,
+                text="📄 View Local Database File",
+                font=('Arial', 10),
+                bg='#4CAF50',
+                fg='#FFFFFF',
+                relief=tk.FLAT,
+                padx=15,
+                pady=8,
+                cursor='hand2',
+                command=self._view_local_database
+            )
+            view_local_btn.pack(anchor='w', pady=(10, 0))
+            view_local_btn.bind('<Enter>', lambda e: view_local_btn.config(bg='#45A049'))
+            view_local_btn.bind('<Leave>', lambda e: view_local_btn.config(bg='#4CAF50'))
+        
         # Additional info for Firebase
         if 'firebase' in db_type.lower():
             info_text = """
@@ -1076,6 +1143,7 @@ Firebase Firestore provides:
 • Real-time synchronization
 • Automatic backups
 • Scalable infrastructure
+• Local backup sync - Data automatically synced to local JSON file
 
 Click "Sync Data" to refresh all data from Firebase.
             """
@@ -1258,6 +1326,283 @@ To use Firebase, see FIREBASE_SETUP.md
                 )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to sync database: {str(e)}")
+    
+    def _view_local_database(self):
+        """View local database with separate views for each data type"""
+        import json
+        from config import DATA_DIR
+        local_db_file = os.path.join(DATA_DIR, "database.json")
+        
+        # Open folder automatically
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(DATA_DIR)
+            elif os.name == 'posix':  # macOS and Linux
+                os.system(f'open "{DATA_DIR}"' if sys.platform == 'darwin' else f'xdg-open "{DATA_DIR}"')
+        except Exception:
+            pass  # Silently fail if folder can't be opened
+        
+        if not os.path.exists(local_db_file):
+            messagebox.showwarning("File Not Found", f"Local database file not found:\n{local_db_file}\n\nFolder has been opened.")
+            return
+        
+        # Load database data
+        try:
+            with open(local_db_file, 'r', encoding='utf-8') as f:
+                db_data = json.load(f)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to read database file:\n{str(e)}")
+            return
+        
+        # Create a new window with tabs
+        view_window = tk.Toplevel(self.root)
+        view_window.title("Local Database Viewer")
+        view_window.geometry("1200x800")
+        view_window.configure(bg='#F5F5F5')
+        
+        # Header
+        header_frame = tk.Frame(view_window, bg='#F5F5F5', padx=20, pady=15)
+        header_frame.pack(fill=tk.X)
+        
+        tk.Label(
+            header_frame,
+            text="Local Database Viewer",
+            font=('Arial', 16, 'bold'),
+            bg='#F5F5F5',
+            fg='#2C3E50'
+        ).pack(side=tk.LEFT)
+        
+        tk.Label(
+            header_frame,
+            text=f"📁 {local_db_file}",
+            font=('Arial', 9),
+            bg='#F5F5F5',
+            fg='#7F8C8D'
+        ).pack(side=tk.RIGHT)
+        
+        # Create notebook for tabs
+        notebook = ttk.Notebook(view_window)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+        
+        # Tab 1: Bills (separate view)
+        bills_frame = tk.Frame(notebook, bg='#FFFFFF')
+        notebook.add(bills_frame, text=f"📋 Bills ({len(db_data.get('bills', []))})")
+        
+        bills_tree = ttk.Treeview(
+            bills_frame,
+            columns=('ID', 'Date', 'Staff', 'Items', 'Total', 'Payment'),
+            show='headings',
+            height=20
+        )
+        
+        bills_tree.heading('ID', text='Bill ID')
+        bills_tree.heading('Date', text='Date & Time')
+        bills_tree.heading('Staff', text='Staff')
+        bills_tree.heading('Items', text='Items')
+        bills_tree.heading('Total', text='Total (₹)')
+        bills_tree.heading('Payment', text='Payment')
+        
+        bills_tree.column('ID', width=100)
+        bills_tree.column('Date', width=180)
+        bills_tree.column('Staff', width=120)
+        bills_tree.column('Items', width=300)
+        bills_tree.column('Total', width=100)
+        bills_tree.column('Payment', width=120)
+        
+        bills_scrollbar = tk.Scrollbar(bills_frame, orient=tk.VERTICAL, command=bills_tree.yview)
+        bills_tree.configure(yscrollcommand=bills_scrollbar.set)
+        
+        bills_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        bills_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10)
+        
+        # Populate bills
+        for bill in db_data.get('bills', []):
+            bill_id = bill.get('id', 'N/A')
+            date_str = bill.get('date', 'N/A')
+            if date_str != 'N/A':
+                try:
+                    date_obj = datetime.fromisoformat(date_str)
+                    date_str = date_obj.strftime("%Y-%m-%d %H:%M")
+                except:
+                    pass
+            
+            # Get staff name
+            user_id = bill.get('user_id')
+            staff_name = 'Unknown'
+            for user in db_data.get('users', []):
+                if user.get('id') == user_id:
+                    staff_name = user.get('name', 'Unknown')
+                    break
+            
+            # Format items
+            items_list = []
+            for item in bill.get('items', []):
+                item_name = item.get('name', 'Unknown')
+                qty = item.get('quantity', 1)
+                if qty > 1:
+                    items_list.append(f"{item_name} (x{qty})")
+                else:
+                    items_list.append(item_name)
+            items_display = ", ".join(items_list[:3])
+            if len(items_list) > 3:
+                items_display += f" (+{len(items_list) - 3} more)"
+            
+            total = bill.get('total', 0)
+            payment = bill.get('payment_method', 'Cash')
+            
+            bills_tree.insert('', 'end', values=(
+                bill_id, date_str, staff_name, items_display, f"₹{total:.2f}", payment
+            ))
+        
+        # Tab 2: Inventory
+        inventory_frame = tk.Frame(notebook, bg='#FFFFFF')
+        notebook.add(inventory_frame, text=f"📦 Inventory ({len(db_data.get('inventory', []))})")
+        
+        inv_tree = ttk.Treeview(
+            inventory_frame,
+            columns=('ID', 'Name', 'Category', 'Price', 'Stock'),
+            show='headings',
+            height=20
+        )
+        
+        inv_tree.heading('ID', text='ID')
+        inv_tree.heading('Name', text='Name')
+        inv_tree.heading('Category', text='Category')
+        inv_tree.heading('Price', text='Price (₹)')
+        inv_tree.heading('Stock', text='Stock')
+        
+        inv_tree.column('ID', width=50)
+        inv_tree.column('Name', width=200)
+        inv_tree.column('Category', width=150)
+        inv_tree.column('Price', width=100)
+        inv_tree.column('Stock', width=100)
+        
+        inv_scrollbar = tk.Scrollbar(inventory_frame, orient=tk.VERTICAL, command=inv_tree.yview)
+        inv_tree.configure(yscrollcommand=inv_scrollbar.set)
+        
+        inv_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        inv_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10)
+        
+        # Populate inventory
+        for item in db_data.get('inventory', []):
+            inv_tree.insert('', 'end', values=(
+                item.get('id'),
+                item.get('name'),
+                item.get('category'),
+                f"₹{item.get('price', 0):.2f}",
+                item.get('stock', 0)
+            ))
+        
+        # Tab 3: Users
+        users_frame = tk.Frame(notebook, bg='#FFFFFF')
+        notebook.add(users_frame, text=f"👥 Users ({len(db_data.get('users', []))})")
+        
+        users_tree = ttk.Treeview(
+            users_frame,
+            columns=('ID', 'Username', 'Name', 'Role'),
+            show='headings',
+            height=20
+        )
+        
+        users_tree.heading('ID', text='ID')
+        users_tree.heading('Username', text='Username')
+        users_tree.heading('Name', text='Name')
+        users_tree.heading('Role', text='Role')
+        
+        users_tree.column('ID', width=50)
+        users_tree.column('Username', width=150)
+        users_tree.column('Name', width=200)
+        users_tree.column('Role', width=100)
+        
+        users_scrollbar = tk.Scrollbar(users_frame, orient=tk.VERTICAL, command=users_tree.yview)
+        users_tree.configure(yscrollcommand=users_scrollbar.set)
+        
+        users_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        users_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10)
+        
+        # Populate users
+        for user in db_data.get('users', []):
+            users_tree.insert('', 'end', values=(
+                user.get('id'),
+                user.get('username'),
+                user.get('name'),
+                user.get('role')
+            ))
+        
+        # Tab 4: Raw JSON
+        json_frame = tk.Frame(notebook, bg='#FFFFFF')
+        notebook.add(json_frame, text="📄 Raw JSON")
+        
+        json_text_frame = tk.Frame(json_frame, bg='#FFFFFF')
+        json_text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        json_scrollbar = tk.Scrollbar(json_text_frame)
+        json_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        json_text = tk.Text(
+            json_text_frame,
+            font=('Consolas', 10),
+            bg='#FFFFFF',
+            fg='#2C3E50',
+            wrap=tk.NONE,
+            yscrollcommand=json_scrollbar.set,
+            padx=15,
+            pady=15
+        )
+        json_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        json_scrollbar.config(command=json_text.yview)
+        
+        # Load JSON
+        json_text.insert('1.0', json.dumps(db_data, indent=2, ensure_ascii=False))
+        json_text.config(state=tk.DISABLED)
+        
+        # Button frame
+        button_frame = tk.Frame(view_window, bg='#F5F5F5', padx=20, pady=15)
+        button_frame.pack(fill=tk.X)
+        
+        tk.Button(
+            button_frame,
+            text="🔄 Refresh",
+            font=('Arial', 11),
+            bg='#3498DB',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=20,
+            pady=8,
+            cursor='hand2',
+            command=lambda: self._refresh_local_database_viewer(view_window, local_db_file)
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="📂 Open Folder",
+            font=('Arial', 11),
+            bg='#4CAF50',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=20,
+            pady=8,
+            cursor='hand2',
+            command=lambda: os.startfile(DATA_DIR) if os.name == 'nt' else messagebox.showinfo("Info", f"File location:\n{DATA_DIR}")
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="Close",
+            font=('Arial', 11),
+            bg='#E74C3C',
+            fg='#FFFFFF',
+            relief=tk.FLAT,
+            padx=20,
+            pady=8,
+            cursor='hand2',
+            command=view_window.destroy
+        ).pack(side=tk.RIGHT, padx=5)
+    
+    def _refresh_local_database_viewer(self, view_window, file_path):
+        """Refresh the local database viewer"""
+        view_window.destroy()
+        self._view_local_database()
     
     def _show_items(self):
         """Show items interface with barcode support"""

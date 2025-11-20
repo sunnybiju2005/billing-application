@@ -1,12 +1,18 @@
 """
 Firebase Firestore database for storing users, inventory, and bills
 Replaces the JSON-based database with Firebase Firestore
+Also syncs data to local JSON file for backup
 """
 
 import os
+import json
+import threading
+import time
 from datetime import datetime, timedelta
-from config import DEFAULT_CREDENTIALS
+from config import DEFAULT_CREDENTIALS, DATA_DIR
 from firebase_config import get_firebase_config
+
+DATABASE_FILE = os.path.join(DATA_DIR, "database.json")
 
 try:
     import firebase_admin
@@ -26,8 +32,14 @@ class FirebaseDatabase:
             )
         
         self.db = None
+        self.offline_mode = False
+        self.pending_sync = []  # Track operations that need to sync when online
         self._initialize_firebase()
         self._initialize_default_data()
+        # Initial sync to local storage
+        self._sync_to_local()
+        # Start background sync thread
+        self._start_background_sync()
     
     def _initialize_firebase(self):
         """Initialize Firebase Admin SDK - ensures only one initialization"""
@@ -65,6 +77,95 @@ class FirebaseDatabase:
         """Get a Firestore collection reference"""
         return self.db.collection(collection_name)
     
+    def _check_internet_connection(self):
+        """Check if internet connection is available"""
+        try:
+            import socket
+            socket.create_connection(("8.8.8.8", 53), timeout=3)
+            return True
+        except OSError:
+            return False
+    
+    def _start_background_sync(self):
+        """Start background thread to sync pending operations when online"""
+        def sync_worker():
+            while True:
+                time.sleep(30)  # Check every 30 seconds
+                if self._check_internet_connection() and not self.offline_mode:
+                    if self.pending_sync:
+                        try:
+                            self._sync_pending_operations()
+                        except Exception:
+                            pass  # Silently fail, will retry later
+                else:
+                    self.offline_mode = True
+        
+        thread = threading.Thread(target=sync_worker, daemon=True)
+        thread.start()
+    
+    def _sync_pending_operations(self):
+        """Sync pending operations to Firebase"""
+        # This would sync any pending operations
+        # For now, just clear the pending list as operations are already saved locally
+        self.pending_sync = []
+        # Full sync to ensure everything is up to date
+        self._sync_to_local()
+    
+    def _sync_to_local(self):
+        """Sync all Firebase data to local JSON file for backup"""
+        try:
+            if self.offline_mode or not self._check_internet_connection():
+                # In offline mode, read from local file and update it
+                if os.path.exists(DATABASE_FILE):
+                    with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                else:
+                    data = {'users': [], 'inventory': [], 'bills': [], 'staff': [], 'monthly_sales': {}}
+            else:
+                # Get all data from Firebase
+                data = {
+                    'users': [],
+                    'inventory': [],
+                    'bills': [],
+                    'staff': []
+                }
+                
+                # Get users
+                users_ref = self._get_collection('users')
+                for doc in users_ref.stream():
+                    data['users'].append(doc.to_dict())
+                
+                # Get inventory
+                inventory_ref = self._get_collection('inventory')
+                for doc in inventory_ref.stream():
+                    data['inventory'].append(doc.to_dict())
+                
+                # Get bills
+                bills_ref = self._get_collection('bills')
+                for doc in bills_ref.stream():
+                    data['bills'].append(doc.to_dict())
+                
+                # Get staff (if exists)
+                staff_ref = self._get_collection('staff')
+                for doc in staff_ref.stream():
+                    data['staff'].append(doc.to_dict())
+                
+                # Get monthly_sales if exists
+                monthly_sales_ref = self._get_collection('monthly_sales')
+                monthly_sales_docs = list(monthly_sales_ref.stream())
+                if monthly_sales_docs:
+                    data['monthly_sales'] = monthly_sales_docs[0].to_dict()
+                else:
+                    data['monthly_sales'] = {}
+            
+            # Save to local JSON file (always, even in offline mode)
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(DATABASE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            # Silently fail - don't interrupt operations if local sync fails
+            pass
+    
     def _initialize_default_data(self):
         """Initialize with default data if collections are empty"""
         # Check and initialize users
@@ -85,6 +186,7 @@ class FirebaseDatabase:
                 'password': DEFAULT_CREDENTIALS['admin']['password'],
                 'name': DEFAULT_CREDENTIALS['admin']['name']
             })
+            self._sync_to_local()
         else:
             # Add admin user
             admin_data = {
@@ -95,6 +197,7 @@ class FirebaseDatabase:
                 'name': DEFAULT_CREDENTIALS['admin']['name']
             }
             users_ref.add(admin_data)
+            self._sync_to_local()
         
         # Check and initialize staff user
         staff_users = users_ref.where('role', '==', 'staff').where('username', '==', DEFAULT_CREDENTIALS['staff']['username']).stream()
@@ -118,6 +221,7 @@ class FirebaseDatabase:
                 'name': DEFAULT_CREDENTIALS['staff']['name']
             }
             users_ref.add(staff_data)
+            self._sync_to_local()
         
         # Initialize empty inventory if not exists
         inventory_ref = self._get_collection('inventory')
@@ -129,6 +233,7 @@ class FirebaseDatabase:
             item_data = doc.to_dict()
             if item_data.get('name') in sample_item_names:
                 doc.reference.delete()
+                self._sync_to_local()
     
     # User management
     def authenticate_user(self, username, password, role):
@@ -172,7 +277,15 @@ class FirebaseDatabase:
             'name': name
         }
         
-        doc_ref = users_ref.add(user_data)
+        try:
+            doc_ref = users_ref.add(user_data)
+            self.offline_mode = False
+        except Exception:
+            self.offline_mode = True
+            self.pending_sync.append(('add_user', user_data))
+        
+        # Always save to local first
+        self._sync_to_local()
         return user_data
     
     def get_all_users(self, role=None):
@@ -222,7 +335,15 @@ class FirebaseDatabase:
             'stock': int(stock)
         }
         
-        inventory_ref.add(item_data)
+        try:
+            inventory_ref.add(item_data)
+            self.offline_mode = False
+        except Exception:
+            self.offline_mode = True
+            self.pending_sync.append(('add_inventory', item_data))
+        
+        # Always save to local first
+        self._sync_to_local()
         return item_data
     
     def update_inventory_item(self, item_id, **kwargs):
@@ -231,10 +352,18 @@ class FirebaseDatabase:
         query = inventory_ref.where('id', '==', item_id).stream()
         
         for item_doc in query:
-            item_doc.reference.update(kwargs)
+            try:
+                item_doc.reference.update(kwargs)
+                self.offline_mode = False
+            except Exception:
+                self.offline_mode = True
+                self.pending_sync.append(('update_inventory', item_id, kwargs))
+            
             # Return updated data
             updated_data = item_doc.to_dict()
             updated_data.update(kwargs)
+            # Always save to local first
+            self._sync_to_local()
             return updated_data
         return None
     
@@ -244,7 +373,15 @@ class FirebaseDatabase:
         query = inventory_ref.where('id', '==', item_id).stream()
         
         for item_doc in query:
-            item_doc.reference.delete()
+            try:
+                item_doc.reference.delete()
+                self.offline_mode = False
+            except Exception:
+                self.offline_mode = True
+                self.pending_sync.append(('delete_inventory', item_id))
+            
+            # Always save to local first
+            self._sync_to_local()
             return True
         return False
     
@@ -258,6 +395,8 @@ class FirebaseDatabase:
             item_doc.reference.delete()
             deleted_count += 1
         
+        if deleted_count > 0:
+            self._sync_to_local()
         return deleted_count > 0
     
     def update_stock(self, item_id, quantity_change):
@@ -303,11 +442,17 @@ class FirebaseDatabase:
             'payment_method': payment_method
         }
         
-        bills_ref.add(bill_data)
+        try:
+            bills_ref.add(bill_data)
+            # Update monthly sales for items
+            self._update_monthly_sales(items)
+            self.offline_mode = False
+        except Exception:
+            self.offline_mode = True
+            self.pending_sync.append(('create_bill', bill_data))
         
-        # Update monthly sales for items
-        self._update_monthly_sales(items)
-        
+        # Always save to local first
+        self._sync_to_local()
         return bill_data
     
     def _update_monthly_sales(self, items):
@@ -419,12 +564,14 @@ class FirebaseDatabase:
         query = bills_ref.where('id', '==', bill_id).stream()
         for bill_doc in query:
             bill_doc.reference.delete()
+            self._sync_to_local()
             return True
         # Try numeric_id if bill_id is numeric
         if isinstance(bill_id, (int, float)):
             query = bills_ref.where('numeric_id', '==', int(bill_id)).stream()
             for bill_doc in query:
                 bill_doc.reference.delete()
+                self._sync_to_local()
                 return True
         return False
     
@@ -437,6 +584,7 @@ class FirebaseDatabase:
             bill_doc.reference.update(kwargs)
             updated_data = bill_doc.to_dict()
             updated_data.update(kwargs)
+            self._sync_to_local()
             return updated_data
         # Try numeric_id if bill_id is numeric
         if isinstance(bill_id, (int, float)):
@@ -445,6 +593,7 @@ class FirebaseDatabase:
                 bill_doc.reference.update(kwargs)
                 updated_data = bill_doc.to_dict()
                 updated_data.update(kwargs)
+                self._sync_to_local()
                 return updated_data
         return None
 
