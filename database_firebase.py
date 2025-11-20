@@ -86,6 +86,69 @@ class FirebaseDatabase:
         except OSError:
             return False
     
+    def _is_firebase_storage_error(self, error):
+        """Check if error is related to Firebase storage/quota issues"""
+        error_str = str(error).lower()
+        storage_errors = [
+            'quota exceeded',
+            'resource exhausted',
+            'out of space',
+            'storage quota',
+            'quota',
+            'insufficient storage',
+            'storage limit',
+            'billing',
+            'payment required'
+        ]
+        return any(err in error_str for err in storage_errors)
+    
+    def _save_to_local_fallback(self, operation_type, data):
+        """Save data to local storage when Firebase fails"""
+        try:
+            # Load existing local data
+            if os.path.exists(DATABASE_FILE):
+                with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
+                    local_data = json.load(f)
+            else:
+                local_data = {'users': [], 'inventory': [], 'bills': [], 'staff': [], 'monthly_sales': {}}
+            
+            # Update local data based on operation type
+            if operation_type == 'add_user' or operation_type == 'update_user':
+                # Add or update user
+                user_id = data.get('id')
+                if user_id:
+                    # Remove existing user with same ID
+                    local_data['users'] = [u for u in local_data['users'] if u.get('id') != user_id]
+                local_data['users'].append(data)
+            
+            elif operation_type == 'add_inventory' or operation_type == 'update_inventory':
+                # Add or update inventory item
+                item_id = data.get('id')
+                if item_id:
+                    # Remove existing item with same ID
+                    local_data['inventory'] = [i for i in local_data['inventory'] if i.get('id') != item_id]
+                local_data['inventory'].append(data)
+            
+            elif operation_type == 'create_bill':
+                # Add bill
+                local_data['bills'].append(data)
+            
+            elif operation_type == 'update_bill':
+                # Update bill
+                bill_id = data.get('id')
+                if bill_id:
+                    local_data['bills'] = [b for b in local_data['bills'] if b.get('id') != bill_id]
+                    local_data['bills'].append(data)
+            
+            # Save to local file
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(DATABASE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(local_data, f, indent=2, ensure_ascii=False)
+            
+            return True
+        except Exception:
+            return False
+    
     def _start_background_sync(self):
         """Start background thread to sync pending operations when online"""
         def sync_worker():
@@ -280,11 +343,14 @@ class FirebaseDatabase:
         try:
             doc_ref = users_ref.add(user_data)
             self.offline_mode = False
-        except Exception:
+        except Exception as e:
             self.offline_mode = True
             self.pending_sync.append(('add_user', user_data))
+            # If Firebase storage is full, save to local immediately
+            if self._is_firebase_storage_error(e):
+                self._save_to_local_fallback('add_user', user_data)
         
-        # Always save to local first
+        # Always save to local (ensures data is never lost)
         self._sync_to_local()
         return user_data
     
@@ -338,11 +404,14 @@ class FirebaseDatabase:
         try:
             inventory_ref.add(item_data)
             self.offline_mode = False
-        except Exception:
+        except Exception as e:
             self.offline_mode = True
             self.pending_sync.append(('add_inventory', item_data))
+            # If Firebase storage is full, save to local immediately
+            if self._is_firebase_storage_error(e):
+                self._save_to_local_fallback('add_inventory', item_data)
         
-        # Always save to local first
+        # Always save to local (ensures data is never lost)
         self._sync_to_local()
         return item_data
     
@@ -352,17 +421,20 @@ class FirebaseDatabase:
         query = inventory_ref.where('id', '==', item_id).stream()
         
         for item_doc in query:
+            updated_data = item_doc.to_dict()
+            updated_data.update(kwargs)
+            
             try:
                 item_doc.reference.update(kwargs)
                 self.offline_mode = False
-            except Exception:
+            except Exception as e:
                 self.offline_mode = True
                 self.pending_sync.append(('update_inventory', item_id, kwargs))
+                # If Firebase storage is full, save to local immediately
+                if self._is_firebase_storage_error(e):
+                    self._save_to_local_fallback('update_inventory', updated_data)
             
-            # Return updated data
-            updated_data = item_doc.to_dict()
-            updated_data.update(kwargs)
-            # Always save to local first
+            # Always save to local (ensures data is never lost)
             self._sync_to_local()
             return updated_data
         return None
@@ -376,11 +448,23 @@ class FirebaseDatabase:
             try:
                 item_doc.reference.delete()
                 self.offline_mode = False
-            except Exception:
+            except Exception as e:
                 self.offline_mode = True
                 self.pending_sync.append(('delete_inventory', item_id))
+                # If Firebase storage is full, still update local storage
+                if self._is_firebase_storage_error(e):
+                    # Load local data and remove item
+                    if os.path.exists(DATABASE_FILE):
+                        try:
+                            with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
+                                local_data = json.load(f)
+                            local_data['inventory'] = [i for i in local_data['inventory'] if i.get('id') != item_id]
+                            with open(DATABASE_FILE, 'w', encoding='utf-8') as f:
+                                json.dump(local_data, f, indent=2, ensure_ascii=False)
+                        except Exception:
+                            pass
             
-            # Always save to local first
+            # Always save to local (ensures data is never lost)
             self._sync_to_local()
             return True
         return False
@@ -445,13 +529,19 @@ class FirebaseDatabase:
         try:
             bills_ref.add(bill_data)
             # Update monthly sales for items
-            self._update_monthly_sales(items)
+            try:
+                self._update_monthly_sales(items)
+            except Exception:
+                pass  # If monthly sales update fails, continue
             self.offline_mode = False
-        except Exception:
+        except Exception as e:
             self.offline_mode = True
             self.pending_sync.append(('create_bill', bill_data))
+            # If Firebase storage is full, save to local immediately
+            if self._is_firebase_storage_error(e):
+                self._save_to_local_fallback('create_bill', bill_data)
         
-        # Always save to local first
+        # Always save to local (ensures data is never lost, even if Firebase is full)
         self._sync_to_local()
         return bill_data
     
@@ -563,14 +653,50 @@ class FirebaseDatabase:
         # Try exact match first
         query = bills_ref.where('id', '==', bill_id).stream()
         for bill_doc in query:
-            bill_doc.reference.delete()
+            try:
+                bill_doc.reference.delete()
+                self.offline_mode = False
+            except Exception as e:
+                self.offline_mode = True
+                # If Firebase storage is full, still update local storage
+                if self._is_firebase_storage_error(e):
+                    # Load local data and remove bill
+                    if os.path.exists(DATABASE_FILE):
+                        try:
+                            with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
+                                local_data = json.load(f)
+                            local_data['bills'] = [b for b in local_data['bills'] if b.get('id') != bill_id]
+                            with open(DATABASE_FILE, 'w', encoding='utf-8') as f:
+                                json.dump(local_data, f, indent=2, ensure_ascii=False)
+                        except Exception:
+                            pass
+            
+            # Always save to local (ensures data is never lost)
             self._sync_to_local()
             return True
         # Try numeric_id if bill_id is numeric
         if isinstance(bill_id, (int, float)):
             query = bills_ref.where('numeric_id', '==', int(bill_id)).stream()
             for bill_doc in query:
-                bill_doc.reference.delete()
+                try:
+                    bill_doc.reference.delete()
+                    self.offline_mode = False
+                except Exception as e:
+                    self.offline_mode = True
+                    # If Firebase storage is full, still update local storage
+                    if self._is_firebase_storage_error(e):
+                        # Load local data and remove bill
+                        if os.path.exists(DATABASE_FILE):
+                            try:
+                                with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
+                                    local_data = json.load(f)
+                                local_data['bills'] = [b for b in local_data['bills'] if b.get('numeric_id') != int(bill_id)]
+                                with open(DATABASE_FILE, 'w', encoding='utf-8') as f:
+                                    json.dump(local_data, f, indent=2, ensure_ascii=False)
+                            except Exception:
+                                pass
+                
+                # Always save to local (ensures data is never lost)
                 self._sync_to_local()
                 return True
         return False
@@ -581,18 +707,38 @@ class FirebaseDatabase:
         # Try exact match first
         query = bills_ref.where('id', '==', bill_id).stream()
         for bill_doc in query:
-            bill_doc.reference.update(kwargs)
             updated_data = bill_doc.to_dict()
             updated_data.update(kwargs)
+            
+            try:
+                bill_doc.reference.update(kwargs)
+                self.offline_mode = False
+            except Exception as e:
+                self.offline_mode = True
+                # If Firebase storage is full, save to local immediately
+                if self._is_firebase_storage_error(e):
+                    self._save_to_local_fallback('update_bill', updated_data)
+            
+            # Always save to local (ensures data is never lost)
             self._sync_to_local()
             return updated_data
         # Try numeric_id if bill_id is numeric
         if isinstance(bill_id, (int, float)):
             query = bills_ref.where('numeric_id', '==', int(bill_id)).stream()
             for bill_doc in query:
-                bill_doc.reference.update(kwargs)
                 updated_data = bill_doc.to_dict()
                 updated_data.update(kwargs)
+                
+                try:
+                    bill_doc.reference.update(kwargs)
+                    self.offline_mode = False
+                except Exception as e:
+                    self.offline_mode = True
+                    # If Firebase storage is full, save to local immediately
+                    if self._is_firebase_storage_error(e):
+                        self._save_to_local_fallback('update_bill', updated_data)
+                
+                # Always save to local (ensures data is never lost)
                 self._sync_to_local()
                 return updated_data
         return None
