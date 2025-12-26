@@ -745,29 +745,27 @@ class FirebaseDatabase:
             from config import BILLS_JSON_DIR
             os.makedirs(BILLS_JSON_DIR, exist_ok=True)
             
-            # Get all bills from local database file
-            if os.path.exists(DATABASE_FILE):
-                with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
-                    local_data = json.load(f)
-                    for bill in local_data.get('bills', []):
-                        bill_id = bill.get('id')
-                        if bill_id:
-                            bill_file = os.path.join(BILLS_JSON_DIR, f"{bill_id}.json")
-                            # Only save if file doesn't exist (avoid overwriting)
-                            if not os.path.exists(bill_file):
-                                self._save_individual_bill(bill)
+            # Get all bills from Firebase first, then from local database file as fallback
+            bills = []
+            try:
+                bills_ref = self._get_collection('bills')
+                bills = [doc.to_dict() for doc in bills_ref.stream()]
+            except Exception:
+                # If Firebase fails, try local database file
+                if os.path.exists(DATABASE_FILE):
+                    with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
+                        local_data = json.load(f)
+                        bills = local_data.get('bills', [])
+            
+            for bill in bills:
+                bill_id = bill.get('id')
+                if bill_id:
+                    bill_file = os.path.join(BILLS_JSON_DIR, f"{bill_id}.json")
+                    # Only save if file doesn't exist (avoid overwriting)
+                    if not os.path.exists(bill_file):
+                        self._save_individual_bill(bill)
         except Exception:
             pass  # Silently fail if migration fails
-    
-    def _delete_individual_bill(self, bill_id):
-        """Delete individual bill JSON file"""
-        try:
-            from config import BILLS_JSON_DIR
-            bill_file = os.path.join(BILLS_JSON_DIR, f"{bill_id}.json")
-            if os.path.exists(bill_file):
-                os.remove(bill_file)
-        except Exception:
-            pass  # Silently fail if deletion fails
     
     def update_bill(self, bill_id, **kwargs):
         """Update a bill by ID"""
