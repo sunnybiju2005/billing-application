@@ -9,7 +9,7 @@ APP_NAME = "DROP Billing System"
 APP_VERSION = "1.0.0"
 SHOP_NAME = "DROP"
 SHOP_TAGLINE = "DRESS FOR LESS"
-SHOP_ADDRESS = "Kunnamkulam , near private bus stand , Kerala 680503"
+SHOP_ADDRESS = "City center, Naikkanal, Thrissur, Kerala 680001"
 
 # File paths - handle both script and executable modes
 import sys
@@ -76,8 +76,8 @@ COLUMN_WIDTH_OPTIONS_80MM = [48, 56, 72]
 # Default credentials (for demo purposes)
 DEFAULT_CREDENTIALS = {
     'admin': {
-        'username': '1',
-        'password': '1',
+        'username': 'DROP',
+        'password': '072024',
         'role': 'admin',
         'name': 'Administrator'
     },

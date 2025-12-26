@@ -288,29 +288,17 @@ class FirebaseDatabase:
             users_ref.add(staff_data)
             self._sync_to_local()
         
-        # Clear all inventory items
+        # Initialize empty inventory if not exists
         inventory_ref = self._get_collection('inventory')
         inventory_docs = list(inventory_ref.stream())
-        if inventory_docs:
-            for doc in inventory_docs:
-                doc.reference.delete()
-            self._sync_to_local()
         
-        # Clear all bills
-        bills_ref = self._get_collection('bills')
-        bills_docs = list(bills_ref.stream())
-        if bills_docs:
-            for doc in bills_docs:
+        # Remove sample items if they exist
+        sample_item_names = ['T-Shirt', 'Jeans', 'Jacket', 'Dress', 'Sneakers', 'Cap']
+        for doc in inventory_docs:
+            item_data = doc.to_dict()
+            if item_data.get('name') in sample_item_names:
                 doc.reference.delete()
-            self._sync_to_local()
-        
-        # Clear monthly sales data
-        monthly_sales_ref = self._get_collection('monthly_sales')
-        monthly_sales_docs = list(monthly_sales_ref.stream())
-        if monthly_sales_docs:
-            for doc in monthly_sales_docs:
-                doc.reference.delete()
-            self._sync_to_local()
+                self._sync_to_local()
     
     # User management
     def authenticate_user(self, username, password, role):
