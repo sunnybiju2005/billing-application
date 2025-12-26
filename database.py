@@ -13,20 +13,32 @@ DATABASE_FILE = os.path.join(DATA_DIR, "database.json")
 # Try to use Firebase first, fall back to JSON if not available
 db = None
 try:
-    from database_firebase import db, DATABASE_TYPE
+    from database_firebase import db, DATABASE_TYPE, _firebase_error
     if DATABASE_TYPE == 'firebase' and db is not None:
         # Firebase is being used
-        print("Connected to Firebase Firestore")
+        print("✅ Connected to Firebase Firestore")
     else:
         # Firebase import failed, use JSON
+        if _firebase_error:
+            print(f"⚠️  {_firebase_error}")
+            print("📝 Falling back to local JSON database")
         raise ImportError("Firebase not configured")
 except (ImportError, AttributeError, Exception) as e:
     # Fall back to JSON database - define Database class below
     db = None
-    # Log error for debugging if verbose mode
+    # Log error for debugging
     import sys
     if '--debug' in sys.argv or '--verbose' in sys.argv:
         print(f"Firebase import failed, using JSON: {str(e)}")
+    else:
+        # Show user-friendly message
+        try:
+            from database_firebase import _firebase_error
+            if _firebase_error:
+                print(f"⚠️  {_firebase_error}")
+        except:
+            pass
+        print("📝 Using local JSON database (data/database.json)")
 
 class Database:
     """Simple JSON-based database for demo purposes"""

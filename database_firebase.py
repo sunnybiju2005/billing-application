@@ -815,26 +815,30 @@ class FirebaseDatabase:
 # The main database.py file will import from here if available, otherwise use JSON
 DATABASE_TYPE = None
 db = None
+_firebase_error = None
 
 try:
     db = FirebaseDatabase()
     DATABASE_TYPE = 'firebase'
+    print("✅ Firebase connected successfully!")
 except ImportError as e:
     # Firebase package not installed
     DATABASE_TYPE = None
     db = None
+    _firebase_error = f"Firebase package not installed: {str(e)}\nPlease run: pip install firebase-admin"
+    print(f"❌ {_firebase_error}")
 except FileNotFoundError as e:
     # Credentials file not found
     DATABASE_TYPE = None
     db = None
+    _firebase_error = f"Firebase credentials file not found: {str(e)}\nPlease place firebase-credentials.json in the project root."
+    print(f"❌ {_firebase_error}")
 except Exception as e:
     # Other errors during initialization - log for debugging
     DATABASE_TYPE = None
     db = None
-    # Print error for debugging (can be removed in production)
-    import sys
-    if '--debug' in sys.argv or '--verbose' in sys.argv:
-        print(f"Firebase initialization error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+    _firebase_error = f"Firebase initialization error: {str(e)}"
+    print(f"❌ {_firebase_error}")
+    import traceback
+    traceback.print_exc()
 
