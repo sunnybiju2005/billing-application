@@ -103,16 +103,19 @@ class Database:
         if 'inventory' not in self.data:
             self.data['inventory'] = []
         
-        # Remove sample items if they exist
-        sample_item_names = ['T-Shirt', 'Jeans', 'Jacket', 'Dress', 'Sneakers', 'Cap']
-        original_count = len(self.data['inventory'])
-        self.data['inventory'] = [
-            item for item in self.data['inventory'] 
-            if item.get('name') not in sample_item_names
-        ]
+        # Clear all inventory items
+        if len(self.data['inventory']) > 0:
+            self.data['inventory'] = []
+            self.save()
         
-        # Save if items were removed
-        if len(self.data['inventory']) < original_count:
+        # Clear all bills
+        if 'bills' not in self.data:
+            self.data['bills'] = []
+        elif len(self.data['bills']) > 0:
+            self.data['bills'] = []
+            # Also clear monthly sales data
+            if 'monthly_sales' in self.data:
+                self.data['monthly_sales'] = {}
             self.save()
     
     def save(self):
